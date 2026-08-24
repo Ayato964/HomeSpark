@@ -66,10 +66,26 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           flexDirection: 'column',
           gap: '24px'
         }}>
-          {/* ver 2.5 */}
+          {/* ver 3.0 */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, background: 'var(--accent)', color: 'var(--on-accent)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.2.5</span>
+              <span style={{ fontSize: '12px', fontWeight: 600, background: 'var(--accent)', color: 'var(--on-accent)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.3.0</span>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-25</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text2)', lineHeight: 1.6 }}>
+              <li><strong>🎙️ リアルタイム呼び出しモード（常時音声会話 & ミュート切替）</strong>: サイドバー設定からOnにすることで、画面遷移を問わず常に手ぶらで話しかけられる常駐音声会話モードを新設。マイクボタンはワンタップで「ミュート / ミュート解除」に切り替わります。</li>
+              <li><strong>🎀 専属秘書ペルソナ「ジェニー」の誕生</strong>: チャット・音声会話の全システムプロンプトおよび即時相槌プリセットに、専属秘書「ジェニー（萌え萌えでしっかり者、アニメのような豊かなリアクション）」を統合しました。</li>
+              <li><strong>🧠 会話内容要約サブエージェント & 長期記憶（Skills）アーカイブ</strong>: 会話が途切れて30分経過した際に、自動で議事録を生成し、メモリ上の生会話ログを全削除してトークン溢れを防止。直近の議事録はプロンプトに動的注入され、古い議事録は「Skills（長期記憶）」として自動アーカイブ保存されます。</li>
+              <li><strong>🔍 過去記憶・スキル検索ツール (`search_past_memories`)</strong>: 「そういえば1年前のさ〜」「以前話した〇〇の件」といった質問に対して、AIが自律的に過去の議事録・記憶アーカイブを検索して正確に回答する Function Calling ツールを追加しました。</li>
+              <li><strong>🛡️ 会話識別サブエージェント & `is_conv` 誤爆防止ステートマシン</strong>: 周囲の雑音・独り言・他人との会話をAIが勝手に拾って誤作動するのを防止。「ジェニー」等のウェイクワードや明確な指示がある時のみ対話を開始し、対話中（`is_conv = true`）は遅延ゼロでリアルタイム対話。用件完了時または20秒無音で自動待機復帰します。</li>
+              <li><strong>🗣️ 発話蓄積バッファ & 沈黙デバウンス（850ms）による言い直し対応</strong>: 言い直しや息継ぎで直前の認識が消されたり、細切れに送信されてしまう問題を根本解決。850msの自然な沈黙を検知して1つのまとまった文章として送信する仕組みを導入しました。</li>
+            </ul>
+          </div>
+
+          {/* ver 2.5 */}
+          <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, background: 'var(--border3)', color: 'var(--text)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.2.5</span>
               <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-25</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text2)', lineHeight: 1.6 }}>
