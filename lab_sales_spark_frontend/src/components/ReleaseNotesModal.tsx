@@ -66,10 +66,26 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           flexDirection: 'column',
           gap: '24px'
         }}>
-          {/* ver 2.0 */}
+          {/* ver 2.5 */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, background: 'var(--accent)', color: 'var(--on-accent)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.2.0</span>
+              <span style={{ fontSize: '12px', fontWeight: 600, background: 'var(--accent)', color: 'var(--on-accent)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.2.5</span>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-25</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text2)', lineHeight: 1.6 }}>
+              <li><strong>🎙️ 常時音声対話 & 途中割り込み（Barge-in / スムーズフェードアウト）</strong>: AI 発話中やツール実行中もマイク入力を停止せず常時リスニング。人間が話しかけた瞬間に AI 音声をスムーズにフェードアウト（約140ms）して即座に停止し、新しいターンを開始するバージインシステムを実装しました。</li>
+              <li><strong>🔊 Zero-shot 音声クローニング & 2文スプリット合成</strong>: リファレンス音声（青山吉能さん）の声質を忠実に再現する Zero-shot Voice Clone 機構を統合。さらに TTS 生成を「2文ごと」にまとめることで、自然な抑揚と流暢な会話テンポを実現しました。</li>
+              <li><strong>🔘 全画面共通のフローティング・マイクボタン（FAB） & 字幕オーバーレイ</strong>: Sparkデスク・名刺・チャットなどすべての画面下部中央に常時表示されるマイクボタンを新設。音声会話中はボタン上部に半透明の字幕ピルがリアルタイム表示されます。</li>
+              <li><strong>🌤️ 高精度・多機能な天気予報ツール (`get_weather`) の新設</strong>: 今日・明日・明後日・今週末・1週間後・7日間の週間天気（天気・最高/最低気温・降水確率・傘の要否・アドバイス）を取得・回答できる Function Calling ツールを統合しました。</li>
+              <li><strong>⚡ ツール実行時の即時ランダム相槌 & 重複発話ストリップ</strong>: カレンダーや天気などのツール実行待機中に「😆はい！お天気を調べてみますね」などの相槌を即座にランダム発話し、ツール完了後の回答と重複しないよう自動クレンジング処理を実装しました。</li>
+              <li><strong>🔢 数字・時刻・金額のサニタイズ保持</strong>: Unicode 絵文字判定正規表現を見直し、「夜の9時です」などの数字が誤って消去される問題を根本修正しました。</li>
+            </ul>
+          </div>
+
+          {/* ver 2.0 */}
+          <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, background: 'var(--border3)', color: 'var(--text)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.2.0</span>
               <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-07-21</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text2)', lineHeight: 1.6 }}>
