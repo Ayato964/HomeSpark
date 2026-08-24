@@ -151,6 +151,8 @@ export default function Home() {
   const handleToggleRealtimeCall = () => {
     setRealtimeCallEnabled(prev => {
       const next = !prev;
+      setIsConvActive(false);
+      isConvActiveRef.current = false;
       if (typeof window !== 'undefined') {
         localStorage.setItem('spark_realtime_call', String(next));
       }
@@ -338,20 +340,36 @@ export default function Home() {
     }
   };
 
-  // Idle timer effect: checks every 30 seconds for 30 minutes of voice silence
+  // Idle timer effect: checks for 20s conversation reset and 30m silence auto-summarize
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+    const CONV_TIMEOUT_MS = 20 * 1000; // 20 seconds
+    const SUMMARY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
     const interval = setInterval(() => {
       const elapsed = Date.now() - lastVoiceActivityTimestampRef.current;
+
+      // 1. Auto-reset active conversation state if user stops speaking for 20s
       if (
-        elapsed >= IDLE_TIMEOUT_MS &&
+        isConvActiveRef.current &&
+        elapsed >= CONV_TIMEOUT_MS &&
+        !isVoiceProcessingRef.current &&
+        !isPlayingRef.current
+      ) {
+        console.log("[Classifier] Inactivity timeout (20s). Safely resetting is_conv = false");
+        setIsConvActive(false);
+        isConvActiveRef.current = false;
+      }
+
+      // 2. Auto-summarize minutes if 30m elapsed
+      if (
+        elapsed >= SUMMARY_TIMEOUT_MS &&
         voiceHistoryRef.current.length > 0 &&
         !isVoiceProcessingRef.current &&
         !isPlayingRef.current
       ) {
         triggerAutoSummarizeMinutes();
       }
-    }, 30000);
+    }, 2000); // Check every 2 seconds
 
     return () => clearInterval(interval);
   }, [token]);
@@ -1751,6 +1769,8 @@ export default function Home() {
 
           <button
             onClick={() => {
+              setIsConvActive(false);
+              isConvActiveRef.current = false;
               if (realtimeCallEnabled) {
                 // Realtime Mode: Toggle Mute / Unmute
                 setIsVoiceMuted(prev => {

@@ -581,11 +581,11 @@ export class ChatService {
         },
         body: JSON.stringify({ text, last_ai_response: lastAiResponse }),
       });
-      if (!response.ok) return true; // fallback
+      if (!response.ok) return false; // safe fallback
       const data = await response.json();
       return !!data.is_addressing;
     } catch {
-      return true; // fallback
+      return false; // safe fallback
     }
   }
 
