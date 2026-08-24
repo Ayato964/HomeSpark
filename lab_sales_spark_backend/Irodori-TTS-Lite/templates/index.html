@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Irodori-TTS & Gemma-4 リアルタイム音声対話</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --primary-glow: radial-gradient(circle, rgba(100, 255, 218, 0.12) 0%, rgba(10, 25, 47, 0) 70%);
+            --accent-color: #64ffda;
+            --accent-purple: #7928ca;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ambient-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 700px;
+            height: 700px;
+            background: var(--primary-glow);
+            z-index: 0;
+            pointer-events: none;
+            filter: blur(100px);
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 900px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 2.5rem;
+            box-sizing: border-box;
+            z-index: 10;
+            position: relative;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 0.5rem;
+        }
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 2.5rem;
+            margin: 0;
+            background: linear-gradient(135deg, #64ffda 0%, #7928ca 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .subtitle {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-top: 0.6rem;
+            letter-spacing: 0.5px;
+        }
+
+        .orb-section {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .orb-container {
+            position: relative;
+            width: 220px;
+            height: 220px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+
+        .orb-ring {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid rgba(100, 255, 218, 0.2);
+            box-shadow: 0 0 30px rgba(100, 255, 218, 0.05), inset 0 0 30px rgba(100, 255, 218, 0.05);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .orb-ring:nth-child(2) {
+            width: 85%;
+            height: 85%;
+            border-color: rgba(121, 40, 202, 0.2);
+            box-shadow: 0 0 30px rgba(121, 40, 202, 0.05), inset 0 0 30px rgba(121, 40, 202, 0.05);
+            animation: spin 12s linear infinite;
+        }
+
+        .orb-ring:nth-child(3) {
+            width: 70%;
+            height: 70%;
+            border-color: rgba(255, 0, 128, 0.2);
+            box-shadow: 0 0 30px rgba(255, 0, 128, 0.05), inset 0 0 30px rgba(255, 0, 128, 0.05);
+            animation: spin-reverse 9s linear infinite;
+        }
+
+        .orb-center {
+            width: 90px;
+            height: 90px;
+            background: radial-gradient(circle, #64ffda 0%, #112240 100%);
+            border-radius: 50%;
+            box-shadow: 0 0 40px rgba(100, 255, 218, 0.4);
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .orb-center svg {
+            width: 36px;
+            height: 36px;
+            color: #0b0c10;
+            transition: color 0.3s ease;
+        }
+
+        /* Orb States */
+        .orb-container.idle .orb-center {
+            background: radial-gradient(circle, #64ffda 0%, #0a192f 100%);
+            box-shadow: 0 0 30px rgba(100, 255, 218, 0.3);
+        }
+        .orb-container.idle .orb-center svg {
+            color: #0b0c10;
+        }
+
+        .orb-container.recording .orb-center {
+            background: radial-gradient(circle, #ff0055 0%, #20000a 100%);
+            box-shadow: 0 0 50px rgba(255, 0, 85, 0.6);
+        }
+        .orb-container.recording .orb-center svg {
+            color: #ffffff;
+        }
+        .orb-container.recording .orb-ring {
+            border-color: rgba(255, 0, 85, 0.4);
+            box-shadow: 0 0 30px rgba(255, 0, 85, 0.1), inset 0 0 30px rgba(255, 0, 85, 0.1);
+        }
+
+        .orb-container.thinking .orb-center {
+            background: radial-gradient(circle, #7928ca 0%, #1a082e 100%);
+            box-shadow: 0 0 40px rgba(121, 40, 202, 0.5);
+            animation: float 2s ease-in-out infinite;
+        }
+        .orb-container.thinking .orb-center svg {
+            color: #ffffff;
+        }
+        .orb-container.thinking .orb-ring {
+            border-color: rgba(121, 40, 202, 0.3);
+            box-shadow: 0 0 30px rgba(121, 40, 202, 0.1), inset 0 0 30px rgba(121, 40, 202, 0.1);
+            animation: pulse-purple 2s infinite alternate;
+        }
+
+        .orb-container.speaking .orb-center {
+            background: radial-gradient(circle, #0070f3 0%, #001e40 100%);
+            box-shadow: 0 0 50px rgba(0, 112, 243, 0.6);
+        }
+        .orb-container.speaking .orb-center svg {
+            color: #ffffff;
+        }
+        .orb-container.speaking .orb-ring {
+            border-color: rgba(0, 112, 243, 0.4);
+            box-shadow: 0 0 30px rgba(0, 112, 243, 0.1), inset 0 0 30px rgba(0, 112, 243, 0.1);
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes spin-reverse {
+            0% { transform: rotate(360deg); }
+            100% { transform: rotate(0deg); }
+        }
+        @keyframes pulse-purple {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(1.1); opacity: 1; }
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        .status-text {
+            margin-top: 2rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: var(--accent-color);
+            min-height: 1.5rem;
+            text-align: center;
+            letter-spacing: 0.5px;
+            transition: color 0.3s ease;
+        }
+        .status-text.recording {
+            color: #ff0055;
+        }
+        .status-text.thinking {
+            color: #b783eb;
+        }
+        .status-text.speaking {
+            color: #0070f3;
+        }
+
+        /* Glassmorphic Chat Section */
+        .chat-section {
+            background: rgba(17, 34, 64, 0.2);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 1.5rem;
+            height: 220px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+            margin-bottom: 2rem;
+            width: 100%;
+            box-sizing: border-box;
+            scroll-behavior: smooth;
+        }
+
+        /* Scrollbar styling */
+        .chat-section::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-section::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .chat-section::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .chat-message {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+            padding: 0.9rem 1.3rem;
+            border-radius: 16px;
+            line-height: 1.6;
+            font-size: 0.95rem;
+            animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .chat-message.user {
+            align-self: flex-end;
+            background: rgba(100, 255, 218, 0.08);
+            border: 1px solid rgba(100, 255, 218, 0.15);
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-message.assistant {
+            align-self: flex-start;
+            background: rgba(121, 40, 202, 0.08);
+            border: 1px solid rgba(121, 40, 202, 0.15);
+            border-bottom-left-radius: 4px;
+        }
+
+        .sender-tag {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 0.3rem;
+        }
+
+        .user .sender-tag {
+            color: var(--accent-color);
+        }
+
+        .assistant .sender-tag {
+            color: #b783eb;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            margin-bottom: 1.5rem;
+        }
+
+        button.mic-btn {
+            background: linear-gradient(135deg, #64ffda 0%, #7928ca 100%);
+            border: none;
+            color: #0b0c10;
+            padding: 1.2rem 2.8rem;
+            border-radius: 40px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(100, 255, 218, 0.25);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            letter-spacing: 1px;
+        }
+
+        button.mic-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(100, 255, 218, 0.45);
+        }
+
+        button.mic-btn:active {
+            transform: translateY(0);
+        }
+
+        button.mic-btn.active {
+            background: linear-gradient(135deg, #ff0055 0%, #aa0033 100%);
+            color: white;
+            box-shadow: 0 4px 20px rgba(255, 0, 85, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="ambient-glow"></div>
+    
+    <div class="app-container">
+        <header>
+            <h1>Irodori Audio Chat</h1>
+            <div class="subtitle">STT (Whisper Large) + LLM (Gemma-4-12B-it) + TTS (Irodori-TTS-Lite INT4)</div>
+        </header>
+
+        <div class="orb-section">
+            <div id="orb" class="orb-container idle">
+                <div class="orb-ring"></div>
+                <div class="orb-ring"></div>
+                <div class="orb-ring"></div>
+                <div class="orb-center">
+                    <svg viewBox="0 0 24 24" fill="currentColor" style="width: 36px; height: 36px;">
+                        <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+                    </svg>
+                </div>
+            </div>
+            <div id="status" class="status-text">ボタンを押して話しかける</div>
+        </div>
+
+        <div id="chat-log" class="chat-section">
+            <!-- Welcome Message -->
+            <div class="chat-message assistant">
+                <span class="sender-tag">System</span>
+                <span>会話を開始するには、下の「話す」ボタンを押してマイクに向かって話しかけてください。</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="record-btn" class="mic-btn">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="width: 24px; height: 24px;">
+                    <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+                </svg>
+                <span id="btn-text">話す</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const recordBtn = document.getElementById('record-btn');
+        const btnText = document.getElementById('btn-text');
+        const orb = document.getElementById('orb');
+        const statusText = document.getElementById('status');
+        const chatLog = document.getElementById('chat-log');
+
+        let ws = null;
+        let audioCtx = null;
+        let micSource = null;
+        let scriptNode = null;
+        let micStream = null;
+
+        let isRecording = false;
+
+        // Audio Queue & State
+        let playQueue = [];
+        let currentSourceNode = null;
+        let isPlaying = false;
+
+        // Helper to update orb states
+        function setOrbState(state, customText) {
+            if (!orb || !statusText || !recordBtn || !btnText) return;
+
+            orb.className = 'orb-container ' + state;
+            statusText.className = 'status-text ' + state;
+            
+            if (state === 'idle') {
+                statusText.innerText = customText || 'ボタンを押して話しかける';
+                recordBtn.classList.remove('active');
+                btnText.innerText = '話す';
+            } else if (state === 'recording') {
+                statusText.innerText = '会話中...（声を出して話しかけてください）';
+                recordBtn.classList.add('active');
+                btnText.innerText = '終了';
+            } else if (state === 'thinking') {
+                statusText.innerText = '考え中...';
+                recordBtn.classList.remove('active');
+                btnText.innerText = '処理中';
+            } else if (state === 'speaking') {
+                statusText.innerText = '返答中...';
+                recordBtn.classList.remove('active');
+                btnText.innerText = '再生中';
+            }
+        }
+
+        // Add message to chat display
+        function addChatMessage(sender, text) {
+            if (!chatLog) return;
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `chat-message ${sender}`;
+            
+            const senderSpan = document.createElement('span');
+            senderSpan.className = 'sender-tag';
+            senderSpan.innerText = sender === 'user' ? 'YOU' : 'AI';
+            
+            const contentSpan = document.createElement('span');
+            contentSpan.innerText = text;
+            
+            msgDiv.appendChild(senderSpan);
+            msgDiv.appendChild(contentSpan);
+            
+            chatLog.appendChild(msgDiv);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        }
+
+        // Stop all audio playback instantly
+        function stopAllPlayback() {
+            if (currentSourceNode) {
+                try {
+                    currentSourceNode.stop();
+                } catch (e) {
+                    // Audio already stopped
+                }
+                currentSourceNode = null;
+            }
+            playQueue = [];
+            isPlaying = false;
+            setOrbState('idle');
+            if (orb) {
+                orb.style.transform = '';
+                orb.style.boxShadow = '';
+            }
+        }
+
+        // Play next audio segment in queue
+        async function playNextInQueue() {
+            if (playQueue.length === 0) {
+                isPlaying = false;
+                if (isRecording) {
+                    setOrbState('recording');
+                } else {
+                    setOrbState('idle');
+                }
+                return;
+            }
+            
+            isPlaying = true;
+            const item = playQueue.shift();
+            
+            // Append response chunk to chat log
+            addChatMessage('assistant', item.text);
+            
+            if (!audioCtx) return;
+            
+            const source = audioCtx.createBufferSource();
+            source.buffer = item.buffer;
+            
+            // Connect to visualizer analyser
+            const playAnalyser = audioCtx.createAnalyser();
+            playAnalyser.fftSize = 256;
+            source.connect(playAnalyser);
+            playAnalyser.connect(audioCtx.destination);
+            
+            const bufferLength = playAnalyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            setOrbState('speaking');
+            currentSourceNode = source;
+            
+            function drawPlay() {
+                if (!orb) return;
+                if (source !== currentSourceNode || audioCtx?.state === 'suspended') {
+                    return;
+                }
+                requestAnimationFrame(drawPlay);
+                playAnalyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    sum += dataArray[i];
+                }
+                let average = sum / bufferLength;
+                let scale = 1.0 + (average / 255) * 0.5;
+                let glow = 30 + (average / 255) * 60;
+                orb.style.transform = `scale(${scale})`;
+                orb.style.boxShadow = `0 0 ${glow}px rgba(0, 112, 243, 0.7)`;
+            }
+            
+            source.onended = () => {
+                // Notify server of successful playback of this index
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'report_played',
+                        index: item.index
+                    }));
+                }
+                
+                if (currentSourceNode === source) {
+                    currentSourceNode = null;
+                    playNextInQueue();
+                }
+            };
+            
+            source.start(0);
+            drawPlay();
+        }
+
+        // Start continuous audio recording and stream via WebSocket
+        async function startStreaming() {
+            try {
+                // Initialize AudioContext at 16000Hz mono
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                }
+                
+                if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
+
+                // Connect WebSocket
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws';
+                ws = new WebSocket(`${protocol}://${window.location.host}/api/ws`);
+                ws.binaryType = 'arraybuffer';
+                
+                ws.onopen = () => {
+                    console.log("[WS] Connected to real-time audio socket");
+                    setOrbState('recording');
+                };
+                
+                ws.onmessage = async (event) => {
+                    if (event.data instanceof ArrayBuffer) {
+                        return;
+                    }
+                    
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'control' && data.action === 'stop') {
+                        console.log("[WS] Barge-in! Stopping playback");
+                        stopAllPlayback();
+                        setOrbState('recording');
+                    }
+                    
+                    else if (data.type === 'chat') {
+                        if (data.user_text) {
+                            addChatMessage('user', data.user_text);
+                        }
+                        if (data.bot_text) {
+                            addChatMessage('assistant', data.bot_text);
+                        }
+                    }
+                    
+                    else if (data.type === 'audio') {
+                        const audioBase64 = data.audio;
+                        const index = data.index;
+                        const text = data.text;
+                        
+                        // Decode base64 array buffer
+                        const binaryString = atob(audioBase64);
+                        const len = binaryString.length;
+                        const bytes = new Uint8Array(len);
+                        for (let i = 0; i < len; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        
+                        if (!audioCtx) return;
+                        
+                        audioCtx.decodeAudioData(bytes.buffer, (buffer) => {
+                            playQueue.push({ index, text, buffer });
+                            if (!isPlaying) {
+                                playNextInQueue();
+                            }
+                        }, (err) => {
+                            console.error("Error decoding base64 audio packet", err);
+                        });
+                    }
+                };
+                
+                ws.onclose = () => {
+                    console.log("[WS] Closed");
+                    stopStreaming();
+                };
+
+                // Access Microphone with noise suppression and echo cancellation
+                micStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 16000,
+                    }
+                });
+                micSource = audioCtx.createMediaStreamSource(micStream);
+                
+                // ScriptProcessor to capture raw Float32 16kHz audio
+                scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
+                
+                micSource.connect(scriptNode);
+                scriptNode.connect(audioCtx.destination);
+                
+                // Setup visualizer analyser
+                const micAnalyser = audioCtx.createAnalyser();
+                micAnalyser.fftSize = 256;
+                micSource.connect(micAnalyser);
+                const bufferLength = micAnalyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                
+                scriptNode.onaudioprocess = (audioProcessingEvent) => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        const inputBuffer = audioProcessingEvent.inputBuffer;
+                        const inputData = inputBuffer.getChannelData(0); // Float32Array
+                        ws.send(inputData.buffer); // Send raw PCM chunk to python backend
+                    }
+                };
+                
+                isRecording = true;
+                
+                function drawMic() {
+                    if (!isRecording || !orb || isPlaying) return; 
+                    requestAnimationFrame(drawMic);
+                    micAnalyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for (let i = 0; i < bufferLength; i++) {
+                        sum += dataArray[i];
+                    }
+                    let average = sum / bufferLength;
+                    let scale = 1.0 + (average / 255) * 0.45;
+                    let glow = 30 + (average / 255) * 60;
+                    orb.style.transform = `scale(${scale})`;
+                    orb.style.boxShadow = `0 0 ${glow}px rgba(255, 0, 85, 0.7)`;
+                }
+                drawMic();
+                
+            } catch (err) {
+                console.error('Error starting live connection:', err);
+                alert('マイクのアクセス権が必要です。');
+                stopStreaming();
+            }
+        }
+
+        // Stop live connection and clean up audio
+        function stopStreaming() {
+            isRecording = false;
+            
+            if (scriptNode) {
+                scriptNode.disconnect();
+                scriptNode = null;
+            }
+            if (micSource) {
+                micSource.disconnect();
+                micSource = null;
+            }
+            if (micStream) {
+                micStream.getTracks().forEach(track => track.stop());
+                micStream = null;
+            }
+            if (ws) {
+                if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                    ws.close();
+                }
+                ws = null;
+            }
+            
+            stopAllPlayback();
+        }
+
+        async function toggleConnection() {
+            if (!isRecording) {
+                await startStreaming();
+            } else {
+                stopStreaming();
+            }
+        }
+
+        if (orb) orb.addEventListener('click', toggleConnection);
+        if (recordBtn) recordBtn.addEventListener('click', toggleConnection);
+    </script>
+</body>
+</html>

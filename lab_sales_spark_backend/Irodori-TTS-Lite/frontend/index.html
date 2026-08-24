@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Irodori-TTS & Gemma-4 リアルタイム音声対話 (TS)</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="ambient-glow"></div>
+    
+    <div class="app-container">
+        <header>
+            <h1>Irodori Audio Chat</h1>
+            <div class="subtitle">STT (Whisper Large) + LLM (Gemma-4-12B-it) + TTS (Irodori-TTS-Lite INT4)</div>
+        </header>
+
+        <div class="orb-section">
+            <div id="orb" class="orb-container idle">
+                <div class="orb-ring"></div>
+                <div class="orb-ring"></div>
+                <div class="orb-ring"></div>
+                <div class="orb-center">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+                    </svg>
+                </div>
+            </div>
+            <div id="status" class="status-text">ボタンを押して話しかける</div>
+        </div>
+
+        <div id="chat-log" class="chat-section">
+            <!-- Welcome Message -->
+            <div class="chat-message assistant">
+                <span class="sender-tag">System</span>
+                <span>会話を開始するには、下の「話す」ボタンを押してマイクに向かって話しかけてください。</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="record-btn" class="mic-btn">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="width: 24px; height: 24px;">
+                    <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+                </svg>
+                <span id="btn-text">話す</span>
+            </button>
+        </div>
+    </div>
+    
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

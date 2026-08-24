@@ -1,0 +1,7 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/just-well-113204/sales-spark-backend', '.']
+images:
+  - 'gcr.io/just-well-113204/sales-spark-backend'
+options:
+  logging: CLOUD_LOGGING_ONLY
