@@ -8,6 +8,7 @@ import { CanvasArea } from "../components/CanvasArea";
 import { SparkDesk } from "../components/SparkDesk";
 import { DigitalBusinessCardView } from "../components/spark/DigitalBusinessCardView";
 import { ReleaseNotesModal } from "../components/ReleaseNotesModal";
+import { ImapSettingsModal } from "../components/ImapSettingsModal";
 import { UserProfile } from "../types/chat";
 import { ChatService } from "../services/ChatService";
 import { getToken } from "../services/auth";
@@ -94,6 +95,7 @@ export default function Home() {
   const [isThemeChanging, setIsThemeChanging] = useState<boolean>(false);
   const [userMenuOpen, setUserMenuOpen] = useState<boolean>(false);
   const [releaseNotesOpen, setReleaseNotesOpen] = useState<boolean>(false);
+  const [isImapSettingsOpen, setIsImapSettingsOpen] = useState<boolean>(false);
 
   // User Profile States
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -557,6 +559,8 @@ export default function Home() {
       'get_weather': '天気予報の確認',
       'search_past_memories': '過去の会話記録・記憶の照会',
       'search_web': 'インターネット検索',
+      'list_external_emails': '外部メール(会社メール等)の確認',
+      'send_external_email': '外部メール(会社メール等)の送信',
     };
     return map[name] || name;
   };
@@ -572,6 +576,11 @@ export default function Home() {
       '😆了解ですっ！メールを検索しますね♪',
       '😊はいっ！届いているメールを確認してみますね！',
       '🤔少々お待ちくださいね、メールボックスをチェックしますっ！',
+    ];
+    const externalMailPhrases = [
+      '😆了解ですっ！会社・外部メールを確認しますね♪',
+      '😊はいっ！外部メールボックスをチェックしてみますね！',
+      '🤔少々お待ちくださいね、外部メールを照会しますっ！',
     ];
     const peoplePhrases = [
       '😆かしこまりましたっ！名刺の情報を探してみますね♪',
@@ -600,7 +609,9 @@ export default function Home() {
     ];
 
     let candidates = genericPhrases;
-    if (toolName.includes('web') || toolName.includes('search_web') || toolName.includes('internet')) {
+    if (toolName.includes('external_email') || toolName.includes('imap')) {
+      candidates = externalMailPhrases;
+    } else if (toolName.includes('web') || toolName.includes('search_web') || toolName.includes('internet')) {
       candidates = webSearchPhrases;
     } else if (toolName.includes('memory') || toolName.includes('skill') || toolName.includes('past')) {
       candidates = memoryPhrases;
@@ -1485,6 +1496,7 @@ export default function Home() {
         onToggleUserMenu={() => setUserMenuOpen(prev => !prev)}
         onOpenReleaseNotes={() => setReleaseNotesOpen(true)}
         onOpenProfile={handleOpenProfileEditor}
+        onOpenImapSettings={() => setIsImapSettingsOpen(true)}
         userMenuRef={userMenuRef}
         isVoiceCallActive={isVoiceCallActive}
         onToggleVoiceCall={() => setIsVoiceCallActive(prev => !prev)}
@@ -1888,6 +1900,11 @@ export default function Home() {
       )}
 
       {renderProfileModal()}
+      <ImapSettingsModal
+        isOpen={isImapSettingsOpen}
+        onClose={() => setIsImapSettingsOpen(false)}
+        token={token}
+      />
 
       <style>{`
         @keyframes pulse {

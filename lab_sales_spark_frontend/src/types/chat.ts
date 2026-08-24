@@ -160,4 +160,20 @@ export interface UserProfile {
   notes?: string;
 }
 
+export interface ImapAccount {
+  id: string;
+  label: string;
+  email_address: string;
+  imap_host: string;
+  imap_port: number;
+  imap_ssl: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_ssl: boolean;
+  username: string;
+  password?: string;
+  is_active: boolean;
+  created_at: string | null;
+}
+
 

@@ -66,11 +66,15 @@ from core.google_tools import build_google_tools, _service, _extract_plain_body
 from core.weather_tools import build_weather_tools
 from core.memory_tools import build_memory_tools
 from core.web_search_tools import build_web_search_tools
+from core.imap_tools import build_imap_tools, test_imap_and_smtp_connection
 from core.classifier import classify_is_addressing_ai, classify_is_conversation_ended
 from core.store import (
     get_user_current_minutes,
     save_user_minutes_and_archive_old,
     search_user_skills,
+    get_imap_accounts,
+    create_imap_account,
+    delete_imap_account,
 )
 
 # Local-dev login when Google OAuth isn't configured yet.
@@ -203,6 +207,71 @@ async def is_conversation_ended_endpoint(req: ConversationEndedRequest):
     """Determine whether the assistant response marks the natural end of the conversation topic."""
     is_ended = classify_is_conversation_ended(req.ai_response)
     return {"is_ended": is_ended}
+
+
+class CreateImapAccountRequest(BaseModel):
+    label: str
+    email_address: str
+    imap_host: str
+    imap_port: int = 993
+    imap_ssl: bool = True
+    smtp_host: str
+    smtp_port: int = 465
+    smtp_ssl: bool = True
+    username: str
+    password: str
+
+
+class TestImapAccountRequest(BaseModel):
+    imap_host: str
+    imap_port: int = 993
+    imap_ssl: bool = True
+    smtp_host: Optional[str] = ""
+    smtp_port: Optional[int] = 465
+    smtp_ssl: Optional[bool] = True
+    username: str
+    password: str
+
+
+@app.get("/api/imap/accounts")
+async def get_imap_accounts_endpoint(authorization: Optional[str] = Header(None)):
+    """List all configured external IMAP accounts for the user."""
+    uid = resolve_uid(authorization)
+    accounts = get_imap_accounts(uid, include_password=False)
+    return {"accounts": accounts}
+
+
+@app.post("/api/imap/accounts/test")
+async def test_imap_account_endpoint(req: TestImapAccountRequest):
+    """Test connection to IMAP and SMTP servers without saving."""
+    res = test_imap_and_smtp_connection(req.dict())
+    return res
+
+
+@app.post("/api/imap/accounts")
+async def create_imap_account_endpoint(
+    req: CreateImapAccountRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Register a new IMAP/SMTP mail account (runs connection test first)."""
+    uid = resolve_uid(authorization)
+    test_res = test_imap_and_smtp_connection(req.dict())
+    if not test_res.get("success"):
+        raise HTTPException(status_code=400, detail=test_res.get("error", "接続テストに失敗しました。設定を確認してください。"))
+
+    account = create_imap_account(uid, req.dict())
+    return {"status": "ok", "account": account}
+
+
+@app.delete("/api/imap/accounts/{account_id}")
+async def delete_imap_account_endpoint(
+    account_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Delete an external IMAP account."""
+    uid = resolve_uid(authorization)
+    delete_imap_account(uid, account_id)
+    return {"status": "ok", "deleted_id": account_id}
 
 
 @app.get("/api/tts")
@@ -443,6 +512,7 @@ async def chat_endpoint(
     base_registry.add_many(build_weather_tools())
     base_registry.add_many(build_memory_tools(uid))
     base_registry.add_many(build_web_search_tools())
+    base_registry.add_many(build_imap_tools(uid))
     wrapped_registry = StreamingToolRegistry(base_registry, event_queue)
 
     # Generate or use chat_id

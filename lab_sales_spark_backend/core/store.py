@@ -383,6 +383,25 @@ def init_spark_tables() -> None:
                 category TEXT NOT NULL DEFAULT 'conversation_minutes',
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
+
+            CREATE TABLE IF NOT EXISTS spark_imap_accounts (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL,
+                user_ref TEXT NOT NULL,
+                label TEXT NOT NULL,
+                email_address TEXT NOT NULL,
+                imap_host TEXT NOT NULL,
+                imap_port INT NOT NULL DEFAULT 993,
+                imap_ssl BOOLEAN NOT NULL DEFAULT TRUE,
+                smtp_host TEXT NOT NULL,
+                smtp_port INT NOT NULL DEFAULT 465,
+                smtp_ssl BOOLEAN NOT NULL DEFAULT TRUE,
+                username TEXT NOT NULL,
+                password_encrypted TEXT NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
         """)
 
 
@@ -1061,6 +1080,123 @@ def search_user_skills(uid: str, query: str = "", limit: int = 5) -> list[dict]:
         }
         for r in rows
     ]
+
+
+def get_imap_accounts(uid: str, include_password: bool = False) -> list[dict]:
+    """Fetch all external IMAP/SMTP mail accounts for the user."""
+    init_spark_tables()
+    with _get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, label, email_address, imap_host, imap_port, imap_ssl,
+                   smtp_host, smtp_port, smtp_ssl, username, password_encrypted, is_active, created_at
+            FROM spark_imap_accounts
+            WHERE tenant_id = %s AND user_ref = %s
+            ORDER BY created_at ASC
+            """,
+            (_TENANT, uid),
+        ).fetchall()
+
+    return [
+        {
+            "id": str(r[0]),
+            "label": r[1],
+            "email_address": r[2],
+            "imap_host": r[3],
+            "imap_port": r[4],
+            "imap_ssl": bool(r[5]),
+            "smtp_host": r[6],
+            "smtp_port": r[7],
+            "smtp_ssl": bool(r[8]),
+            "username": r[9],
+            "password": r[10] if include_password else "••••••••",
+            "is_active": bool(r[11]),
+            "created_at": r[12].isoformat() if r[12] else None,
+        }
+        for r in rows
+    ]
+
+
+def get_imap_account_by_id(uid: str, account_id: str, include_password: bool = True) -> dict | None:
+    """Fetch a single IMAP/SMTP account by ID."""
+    init_spark_tables()
+    with _get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, label, email_address, imap_host, imap_port, imap_ssl,
+                   smtp_host, smtp_port, smtp_ssl, username, password_encrypted, is_active, created_at
+            FROM spark_imap_accounts
+            WHERE tenant_id = %s AND user_ref = %s AND id = %s
+            """,
+            (_TENANT, uid, _as_uuid(account_id)),
+        ).fetchone()
+
+    if not row:
+        return None
+
+    return {
+        "id": str(row[0]),
+        "label": row[1],
+        "email_address": row[2],
+        "imap_host": row[3],
+        "imap_port": row[4],
+        "imap_ssl": bool(row[5]),
+        "smtp_host": row[6],
+        "smtp_port": row[7],
+        "smtp_ssl": bool(row[8]),
+        "username": row[9],
+        "password": row[10] if include_password else "••••••••",
+        "is_active": bool(row[11]),
+        "created_at": row[12].isoformat() if row[12] else None,
+    }
+
+
+def create_imap_account(uid: str, data: dict) -> dict:
+    """Register a new external IMAP/SMTP account."""
+    init_spark_tables()
+    new_id = uuid.uuid4()
+    label = data.get("label", "外部メール")
+    email_address = data.get("email_address", "").strip()
+    imap_host = data.get("imap_host", "").strip()
+    imap_port = int(data.get("imap_port", 993))
+    imap_ssl = bool(data.get("imap_ssl", True))
+    smtp_host = data.get("smtp_host", "").strip()
+    smtp_port = int(data.get("smtp_port", 465))
+    smtp_ssl = bool(data.get("smtp_ssl", True))
+    username = data.get("username", email_address).strip()
+    password = data.get("password", "").strip()
+
+    with _get_pool().connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO spark_imap_accounts
+              (id, tenant_id, user_ref, label, email_address, imap_host, imap_port, imap_ssl,
+               smtp_host, smtp_port, smtp_ssl, username, password_encrypted, is_active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+            """,
+            (
+                new_id, _TENANT, uid, label, email_address,
+                imap_host, imap_port, imap_ssl,
+                smtp_host, smtp_port, smtp_ssl,
+                username, password,
+            ),
+        )
+
+    return get_imap_account_by_id(uid, str(new_id), include_password=False)  # type: ignore
+
+
+def delete_imap_account(uid: str, account_id: str) -> None:
+    """Delete an IMAP/SMTP account."""
+    init_spark_tables()
+    with _get_pool().connection() as conn:
+        conn.execute(
+            """
+            DELETE FROM spark_imap_accounts
+            WHERE tenant_id = %s AND user_ref = %s AND id = %s
+            """,
+            (_TENANT, uid, _as_uuid(account_id)),
+        )
+
 
 
 

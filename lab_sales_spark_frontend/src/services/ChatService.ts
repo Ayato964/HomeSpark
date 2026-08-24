@@ -1,4 +1,4 @@
-import { ChatEvent, MessageContentItem, Person, UserProfile } from '../types/chat';
+import { ChatEvent, MessageContentItem, Person, UserProfile, ImapAccount } from '../types/chat';
 
 export class ChatService {
   private backendUrl: string;
@@ -608,6 +608,65 @@ export class ChatService {
       return !!data.is_ended;
     } catch {
       return false;
+    }
+  }
+
+  /** Fetch configured IMAP accounts. */
+  public async getImapAccounts(token: string | null): Promise<ImapAccount[]> {
+    const response = await fetch(`${this.backendUrl}/api/imap/accounts`, {
+      method: 'GET',
+      headers: this.authHeaders(token),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch IMAP accounts: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.accounts || [];
+  }
+
+  /** Test IMAP/SMTP connection settings. */
+  public async testImapAccount(token: string | null, config: any): Promise<{ success: boolean; message?: string; error?: string }> {
+    const response = await fetch(`${this.backendUrl}/api/imap/accounts/test`, {
+      method: 'POST',
+      headers: {
+        ...this.authHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      return { success: false, error: err.detail || `HTTP Error ${response.status}` };
+    }
+    return response.json();
+  }
+
+  /** Create/Register a new IMAP account. */
+  public async createImapAccount(token: string | null, config: any): Promise<ImapAccount> {
+    const response = await fetch(`${this.backendUrl}/api/imap/accounts`, {
+      method: 'POST',
+      headers: {
+        ...this.authHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to create IMAP account: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.account;
+  }
+
+  /** Delete an IMAP account. */
+  public async deleteImapAccount(token: string | null, accountId: string): Promise<void> {
+    const response = await fetch(`${this.backendUrl}/api/imap/accounts/${encodeURIComponent(accountId)}`, {
+      method: 'DELETE',
+      headers: this.authHeaders(token),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to delete IMAP account: ${response.status}`);
     }
   }
 }
