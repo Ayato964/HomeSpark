@@ -10,9 +10,9 @@ MODEL_NAME = os.getenv("MODEL_NAME", DEFAULT_MODEL)
 API_KEY_ENV = "BYTECOMPUTE_API_KEY"
 
 # --------------------------------------------------------------------------- #
-# TTS (Irodori-TTS-Lite) GPU Worker Endpoint
+# TTS (Irodori-TTS-Lite / Local TTS) Endpoint
 # --------------------------------------------------------------------------- #
-TTS_SERVER_URL = os.getenv("TTS_SERVER_URL", "http://100.117.38.96:8008")
+TTS_SERVER_URL = os.getenv("TTS_SERVER_URL", "http://127.0.0.1:8008")
 
 # --------------------------------------------------------------------------- #
 # PostgreSQL persistence (shared with poc_customer_meeting_agent's Neon DB)
