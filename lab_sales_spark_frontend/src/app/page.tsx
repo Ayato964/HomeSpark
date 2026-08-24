@@ -113,9 +113,52 @@ export default function Home() {
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
 
 
-  // Voice Call States
+  // Voice Call & Realtime Call States
   const [isVoiceCallActive, setIsVoiceCallActive] = useState<boolean>(false);
+  const [realtimeCallEnabled, setRealtimeCallEnabled] = useState<boolean>(false);
+  const [isVoiceMuted, setIsVoiceMuted] = useState<boolean>(false);
   const [subtitle, setSubtitle] = useState<{ text: string; sender: 'user' | 'ai' | 'status' } | null>(null);
+
+  const isVoiceMutedRef = useRef<boolean>(false);
+  const realtimeCallEnabledRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    isVoiceMutedRef.current = isVoiceMuted;
+  }, [isVoiceMuted]);
+
+  useEffect(() => {
+    realtimeCallEnabledRef.current = realtimeCallEnabled;
+  }, [realtimeCallEnabled]);
+
+  // Load persisted realtime call preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('spark_realtime_call');
+      if (saved === 'true') {
+        setRealtimeCallEnabled(true);
+        setIsVoiceCallActive(true);
+      }
+    }
+  }, []);
+
+  const handleToggleRealtimeCall = () => {
+    setRealtimeCallEnabled(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('spark_realtime_call', String(next));
+      }
+      if (next) {
+        setIsVoiceCallActive(true);
+        setIsVoiceMuted(false);
+        setSubtitle({ text: '🎙️ リアルタイム通話を開始しました（常時待機中）', sender: 'status' });
+      } else {
+        setIsVoiceCallActive(false);
+        setIsVoiceMuted(false);
+        setSubtitle(null);
+      }
+      return next;
+    });
+  };
 
   const accent = "#2DD4BF";
   const bloom = 0.6;
@@ -718,6 +761,10 @@ export default function Home() {
         };
 
         rec.onresult = (event: any) => {
+          if (isVoiceMutedRef.current) {
+            return;
+          }
+
           let interimTranscript = '';
           let finalTranscript = '';
 
@@ -1283,6 +1330,8 @@ export default function Home() {
         userMenuRef={userMenuRef}
         isVoiceCallActive={isVoiceCallActive}
         onToggleVoiceCall={() => setIsVoiceCallActive(prev => !prev)}
+        realtimeCallEnabled={realtimeCallEnabled}
+        onToggleRealtimeCall={handleToggleRealtimeCall}
       />
 
       {/* ============ MAIN AREA ============ */}
@@ -1561,7 +1610,7 @@ export default function Home() {
           justifyContent: 'center'
         }}>
           {/* Active Ripple Animation Rings */}
-          {isVoiceCallActive && (
+          {isVoiceCallActive && (!realtimeCallEnabled || !isVoiceMuted) && (
             <div className="voice-ripple-ring" style={{
               position: 'absolute',
               width: '68px',
@@ -1574,21 +1623,48 @@ export default function Home() {
           )}
 
           <button
-            onClick={() => setIsVoiceCallActive(prev => !prev)}
-            title={isVoiceCallActive ? "音声会話を終了 (クリックで停止)" : "音声会話を開始 (いつでも話しかけられます)"}
+            onClick={() => {
+              if (realtimeCallEnabled) {
+                // Realtime Mode: Toggle Mute / Unmute
+                setIsVoiceMuted(prev => {
+                  const nextMuted = !prev;
+                  if (nextMuted) {
+                    fadeOutAndStopVoice(true);
+                    setSubtitle({ text: '🔇 マイクはミュートされています（クリックで解除）', sender: 'status' });
+                  } else {
+                    setSubtitle({ text: 'お話しください...', sender: 'status' });
+                  }
+                  return nextMuted;
+                });
+              } else {
+                // Normal Mode: Toggle Call On/Off
+                setIsVoiceCallActive(prev => !prev);
+              }
+            }}
+            title={
+              realtimeCallEnabled
+                ? (isVoiceMuted ? "ミュートを解除 (クリックで再開)" : "マイクをミュート (クリックで消音)")
+                : (isVoiceCallActive ? "音声会話を終了 (クリックで停止)" : "音声会話を開始 (いつでも話しかけられます)")
+            }
             style={{
               position: 'relative',
               width: '54px',
               height: '54px',
               borderRadius: '50%',
-              background: isVoiceCallActive 
-                ? 'linear-gradient(135deg, var(--accent) 0%, #14b8a6 100%)' 
-                : 'var(--panel)',
-              color: isVoiceCallActive ? 'var(--on-accent)' : 'var(--text)',
-              border: isVoiceCallActive ? 'none' : '1px solid var(--border3)',
-              boxShadow: isVoiceCallActive 
-                ? '0 0 25px rgba(45, 212, 191, 0.6), 0 8px 24px rgba(0, 0, 0, 0.25)' 
-                : '0 6px 20px rgba(0, 0, 0, 0.15)',
+              background: realtimeCallEnabled
+                ? (isVoiceMuted ? 'rgba(239, 68, 68, 0.15)' : 'linear-gradient(135deg, var(--accent) 0%, #14b8a6 100%)')
+                : (isVoiceCallActive ? 'linear-gradient(135deg, var(--accent) 0%, #14b8a6 100%)' : 'var(--panel)'),
+              color: realtimeCallEnabled
+                ? (isVoiceMuted ? '#EF4444' : 'var(--on-accent)')
+                : (isVoiceCallActive ? 'var(--on-accent)' : 'var(--text)'),
+              border: realtimeCallEnabled && isVoiceMuted
+                ? '2px solid #EF4444'
+                : (isVoiceCallActive ? 'none' : '1px solid var(--border3)'),
+              boxShadow: realtimeCallEnabled && isVoiceMuted
+                ? '0 0 20px rgba(239, 68, 68, 0.4), 0 8px 24px rgba(0, 0, 0, 0.25)'
+                : (isVoiceCallActive 
+                    ? '0 0 25px rgba(45, 212, 191, 0.6), 0 8px 24px rgba(0, 0, 0, 0.25)' 
+                    : '0 6px 20px rgba(0, 0, 0, 0.15)'),
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -1598,28 +1674,33 @@ export default function Home() {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'scale(1.08)';
-              if (!isVoiceCallActive) {
-                e.currentTarget.style.borderColor = 'var(--accent)';
-                e.currentTarget.style.boxShadow = '0 0 16px rgba(45, 212, 191, 0.35), 0 6px 20px rgba(0, 0, 0, 0.15)';
+              if (!isVoiceCallActive && (!realtimeCallEnabled || isVoiceMuted)) {
+                e.currentTarget.style.borderColor = realtimeCallEnabled && isVoiceMuted ? '#EF4444' : 'var(--accent)';
               }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'scale(1)';
-              if (!isVoiceCallActive) {
-                e.currentTarget.style.borderColor = 'var(--border3)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.15)';
-              }
             }}
           >
-            {isVoiceCallActive ? (
-              // Active: Microphone with pulse / Stop badge
+            {realtimeCallEnabled && isVoiceMuted ? (
+              // Muted Microphone Icon
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="2" y1="2" x2="22" y2="22" />
+                <path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" />
+                <path d="M5 10v2a7 7 0 0 0 12 5" />
+                <path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" />
+                <path d="M9 9v3a3 3 0 0 0 5.12 2.12" />
+                <line x1="12" x2="12" y1="19" y2="22" />
+              </svg>
+            ) : isVoiceCallActive ? (
+              // Active Microphone Icon
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                 <line x1="12" x2="12" y1="19" y2="22" />
               </svg>
             ) : (
-              // Inactive: Crisp microphone icon
+              // Inactive Microphone Icon
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
