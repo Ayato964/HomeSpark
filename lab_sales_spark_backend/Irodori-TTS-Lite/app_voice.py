@@ -16,8 +16,8 @@ import pyopenjtalk
 import uvicorn
 import json
 
-# Ensure upstream path is in sys.path
-sys.path.insert(0, "/home/ubuntu/nagoshi/Irodori-TTS")
+# Dynamic base directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 import irodori_tts_lite
 from irodori_tts.inference_runtime import (
@@ -131,15 +131,15 @@ app = FastAPI(
 )
 
 # Mount static assets directory from built TS frontend
-assets_dir = "/home/ubuntu/nagoshi/Irodori-TTS-Lite/frontend/dist/assets"
+assets_dir = os.path.join(BASE_DIR, "frontend", "dist", "assets")
 if os.path.exists(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 @app.get("/", response_class=HTMLResponse)
 async def get_index():
-    index_path = "/home/ubuntu/nagoshi/Irodori-TTS-Lite/frontend/dist/index.html"
+    index_path = os.path.join(BASE_DIR, "frontend", "dist", "index.html")
     if not os.path.exists(index_path):
-        index_path = "/home/ubuntu/nagoshi/Irodori-TTS-Lite/templates/index.html"
+        index_path = os.path.join(BASE_DIR, "templates", "index.html")
         
     if not os.path.exists(index_path):
         raise HTTPException(status_code=404, detail="Index HTML template not found")
