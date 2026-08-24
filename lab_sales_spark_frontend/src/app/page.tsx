@@ -448,32 +448,32 @@ export default function Home() {
     return map[name] || name;
   };
 
-  // Randomized preset acknowledgment phrases spoken immediately when a tool is called
+  // Randomized preset acknowledgment phrases spoken immediately when a tool is called (Persona: Jenny)
   const getRandomToolAcknowledgePhrase = (toolName: string): string => {
     const calendarPhrases = [
-      '😆はい！カレンダーを確認しますね。',
-      '😊わかりました！予定を見てみますね。',
-      '🤔少々お待ちください、スケジュールをお調べしますね。',
+      '😆はいっ！カレンダーを確認しますねっ♪',
+      '😊お任せくださいっ！予定を見てみますね！',
+      '🤔少々お待ちくださいね、スケジュールをお調べしますっ！',
     ];
     const mailPhrases = [
-      '😆了解です！メールを検索しますね。',
-      '😊はい！届いているメールを確認してみますね。',
-      '🤔少々お待ちください、メールボックスをチェックしますね。',
+      '😆了解ですっ！メールを検索しますね♪',
+      '😊はいっ！届いているメールを確認してみますね！',
+      '🤔少々お待ちくださいね、メールボックスをチェックしますっ！',
     ];
     const peoplePhrases = [
-      '😆かしこまりました！名刺の情報を探してみますね。',
-      '😊はい！顧客データを照会しますね。',
-      '🤔名刺データを確認しますね。',
+      '😆かしこまりましたっ！名刺の情報を探してみますね♪',
+      '😊はいっ！顧客データを照会しますね！',
+      '🤔名刺データを確認しますねっ！',
     ];
     const weatherPhrases = [
-      '😆はい！お天気を調べてみますね。',
-      '😊わかりました！天気予報を確認しますね。',
-      '🤔少々お待ちください、最新の気象情報をチェックしますね。',
+      '😆はいっ！お天気を調べてみますねっ♪',
+      '😊お任せくださいっ！天気予報を確認しますね！',
+      '🤔少々お待ちくださいね、最新の気象情報をチェックしますっ！',
     ];
     const genericPhrases = [
-      '😆はい！確認してみますね。',
-      '😊わかりました！少々お待ちくださいね。',
-      '🤔ええとね、今お調べしていますよ。',
+      '😆はいっ！確認してみますねっ♪',
+      '😊わかりましたっ！少々お待ちくださいね！',
+      '🤔ええとね、今お調べしていますよっ♪',
     ];
 
     let candidates = genericPhrases;
