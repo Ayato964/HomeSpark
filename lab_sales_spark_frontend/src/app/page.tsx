@@ -318,6 +318,8 @@ export default function Home() {
   const hasSpokenToolAcknowledgeRef = useRef<boolean>(false);
   const lastVoiceActivityTimestampRef = useRef<number>(Date.now());
   const isSummarizingMemoryRef = useRef<boolean>(false);
+  const speechAccumulatorRef = useRef<string>('');
+  const speechSilenceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-summarize subagent execution on 30-minute inactivity
   const triggerAutoSummarizeMinutes = async () => {
@@ -850,8 +852,54 @@ export default function Home() {
         rec.continuous = true;
         rec.interimResults = true;
 
+        const flushAccumulatedSpeech = () => {
+          if (speechSilenceTimerRef.current) {
+            clearTimeout(speechSilenceTimerRef.current);
+            speechSilenceTimerRef.current = null;
+          }
+
+          const fullSpeech = speechAccumulatorRef.current.trim();
+          speechAccumulatorRef.current = '';
+
+          if (!fullSpeech) return;
+
+          console.log("[SpeechRecognition] Finalized speech turn (accumulated):", fullSpeech);
+
+          if (isConvActiveRef.current) {
+            // Already in conversation: send immediately to AI
+            handleVoiceInput(fullSpeech);
+          } else {
+            // Not in conversation: verify if addressing AI
+            setSubtitle({ text: `あなた: ${fullSpeech}`, sender: 'user' });
+
+            (async () => {
+              const chatService = new ChatService();
+              const localToken = typeof window !== 'undefined' ? window.localStorage.getItem('spark_session') : null;
+              const freshToken = getToken() || token || localToken;
+
+              const isAddressing = await chatService.checkIsAddressingAI(
+                freshToken,
+                fullSpeech,
+                lastAssistantResponseRef.current
+              );
+
+              if (isAddressing) {
+                console.log("[Classifier] User speech addresses AI! Setting is_conv = true");
+                setIsConvActive(true);
+                isConvActiveRef.current = true;
+                handleVoiceInput(fullSpeech);
+              } else {
+                console.log("[Classifier] Speech ignored (not addressing AI):", fullSpeech);
+                setTimeout(() => {
+                  setSubtitle(prev => (prev && prev.text.includes(fullSpeech) ? null : prev));
+                }, 1500);
+              }
+            })();
+          }
+        };
+
         rec.onstart = () => {
-          if (!isPlayingRef.current && !isVoiceProcessingRef.current) {
+          if (!isPlayingRef.current && !isVoiceProcessingRef.current && !speechAccumulatorRef.current) {
             setSubtitle({ text: 'お話しください...', sender: 'status' });
           }
         };
@@ -862,61 +910,34 @@ export default function Home() {
           }
 
           let interimTranscript = '';
-          let finalTranscript = '';
 
           for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-              finalTranscript += event.results[i][0].transcript;
+              speechAccumulatorRef.current += (speechAccumulatorRef.current ? ' ' : '') + transcript.trim();
             } else {
-              interimTranscript += event.results[i][0].transcript;
+              interimTranscript += transcript;
             }
           }
 
-          const hasUserSpeech = interimTranscript.trim() || finalTranscript.trim();
+          const currentLiveSpeech = (speechAccumulatorRef.current + (interimTranscript ? ' ' + interimTranscript : '')).trim();
 
           // Barge-in trigger: if AI is speaking/processing and user starts speaking, fade out and stop AI immediately
-          if (hasUserSpeech && (isPlayingRef.current || isVoiceProcessingRef.current)) {
+          if (currentLiveSpeech && (isPlayingRef.current || isVoiceProcessingRef.current)) {
             console.log("[Barge-in] User started talking while AI is active. Fading out AI voice...");
             fadeOutAndStopVoice(false); // Smooth fade-out in 140ms
           }
 
-          if (finalTranscript.trim()) {
-            const userSpeech = finalTranscript.trim();
+          if (currentLiveSpeech) {
+            setSubtitle({ text: `あなた: ${currentLiveSpeech}`, sender: 'user' });
 
-            // If already in conversation (is_conv === true), forward immediately without classification delay!
-            if (isConvActiveRef.current) {
-              handleVoiceInput(userSpeech);
-            } else {
-              // Not in conversation (is_conv === false): run conversation classifier subagent
-              setSubtitle({ text: `あなた: ${userSpeech}`, sender: 'user' });
-
-              (async () => {
-                const chatService = new ChatService();
-                const localToken = typeof window !== 'undefined' ? window.localStorage.getItem('spark_session') : null;
-                const freshToken = getToken() || token || localToken;
-
-                const isAddressing = await chatService.checkIsAddressingAI(
-                  freshToken,
-                  userSpeech,
-                  lastAssistantResponseRef.current
-                );
-
-                if (isAddressing) {
-                  console.log("[Classifier] User speech addresses AI! Setting is_conv = true");
-                  setIsConvActive(true);
-                  isConvActiveRef.current = true;
-                  handleVoiceInput(userSpeech);
-                } else {
-                  console.log("[Classifier] Speech ignored (not addressing AI, e.g. soliloquy/eavesdrop/noise):", userSpeech);
-                  // Dismiss subtitle after 1.5s
-                  setTimeout(() => {
-                    setSubtitle(prev => (prev && prev.text.includes(userSpeech) ? null : prev));
-                  }, 1500);
-                }
-              })();
+            // Debounce silence timer: wait 850ms of silence before finalizing and sending the turn
+            if (speechSilenceTimerRef.current) {
+              clearTimeout(speechSilenceTimerRef.current);
             }
-          } else if (interimTranscript.trim()) {
-            setSubtitle({ text: `あなた: ${interimTranscript}...`, sender: 'user' });
+            speechSilenceTimerRef.current = setTimeout(() => {
+              flushAccumulatedSpeech();
+            }, 850);
           }
         };
 
