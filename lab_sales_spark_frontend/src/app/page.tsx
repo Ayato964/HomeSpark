@@ -117,10 +117,17 @@ export default function Home() {
   const [isVoiceCallActive, setIsVoiceCallActive] = useState<boolean>(false);
   const [realtimeCallEnabled, setRealtimeCallEnabled] = useState<boolean>(false);
   const [isVoiceMuted, setIsVoiceMuted] = useState<boolean>(false);
+  const [isConvActive, setIsConvActive] = useState<boolean>(false); // is_conv flag
   const [subtitle, setSubtitle] = useState<{ text: string; sender: 'user' | 'ai' | 'status' } | null>(null);
 
   const isVoiceMutedRef = useRef<boolean>(false);
   const realtimeCallEnabledRef = useRef<boolean>(false);
+  const isConvActiveRef = useRef<boolean>(false);
+  const lastAssistantResponseRef = useRef<string>('');
+
+  useEffect(() => {
+    isConvActiveRef.current = isConvActive;
+  }, [isConvActive]);
 
   useEffect(() => {
     isVoiceMutedRef.current = isVoiceMuted;
@@ -766,9 +773,27 @@ export default function Home() {
             voiceHistoryRef.current.push({ role: 'user', content: userSpeech });
             voiceHistoryRef.current.push({ role: 'assistant', content: fullAssistantResponse });
             lastVoiceActivityTimestampRef.current = Date.now();
+            lastAssistantResponseRef.current = fullAssistantResponse;
             // Cap in-memory history to last 10 turns (20 messages)
             if (voiceHistoryRef.current.length > 20) {
               voiceHistoryRef.current = voiceHistoryRef.current.slice(-20);
+            }
+
+            // Background async conversation end classification (zero user latency)
+            if (isConvActiveRef.current && fullAssistantResponse.trim()) {
+              const respToClassify = fullAssistantResponse.trim();
+              (async () => {
+                const chatService = new ChatService();
+                const localToken = typeof window !== 'undefined' ? window.localStorage.getItem('spark_session') : null;
+                const freshToken = getToken() || token || localToken;
+                const isEnded = await chatService.checkIsConversationEnded(freshToken, respToClassify);
+                console.log("[Classifier] Conversation end classification result:", isEnded);
+                if (isEnded) {
+                  console.log("[Classifier] Conversation topic concluded. Resetting is_conv = false");
+                  setIsConvActive(false);
+                  isConvActiveRef.current = false;
+                }
+              })();
             }
 
             // Check if ready segments can play immediately
@@ -838,7 +863,40 @@ export default function Home() {
           }
 
           if (finalTranscript.trim()) {
-            handleVoiceInput(finalTranscript.trim());
+            const userSpeech = finalTranscript.trim();
+
+            // If already in conversation (is_conv === true), forward immediately without classification delay!
+            if (isConvActiveRef.current) {
+              handleVoiceInput(userSpeech);
+            } else {
+              // Not in conversation (is_conv === false): run conversation classifier subagent
+              setSubtitle({ text: `あなた: ${userSpeech}`, sender: 'user' });
+
+              (async () => {
+                const chatService = new ChatService();
+                const localToken = typeof window !== 'undefined' ? window.localStorage.getItem('spark_session') : null;
+                const freshToken = getToken() || token || localToken;
+
+                const isAddressing = await chatService.checkIsAddressingAI(
+                  freshToken,
+                  userSpeech,
+                  lastAssistantResponseRef.current
+                );
+
+                if (isAddressing) {
+                  console.log("[Classifier] User speech addresses AI! Setting is_conv = true");
+                  setIsConvActive(true);
+                  isConvActiveRef.current = true;
+                  handleVoiceInput(userSpeech);
+                } else {
+                  console.log("[Classifier] Speech ignored (not addressing AI, e.g. soliloquy/eavesdrop/noise):", userSpeech);
+                  // Dismiss subtitle after 1.5s
+                  setTimeout(() => {
+                    setSubtitle(prev => (prev && prev.text.includes(userSpeech) ? null : prev));
+                  }, 1500);
+                }
+              })();
+            }
           } else if (interimTranscript.trim()) {
             setSubtitle({ text: `あなた: ${interimTranscript}...`, sender: 'user' });
           }
@@ -1616,8 +1674,24 @@ export default function Home() {
                 animation: subtitle.sender !== 'status' ? 'pulse 1.5s infinite alternate' : 'none'
               }}></span>
               <span style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255, 255, 255, 0.6)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                {subtitle.sender === 'user' ? 'あなた' : (subtitle.sender === 'ai' ? 'Spark AI' : 'ステータス')}
+                {subtitle.sender === 'user' ? 'あなた' : (subtitle.sender === 'ai' ? 'Jenny' : 'ステータス')}
               </span>
+              {realtimeCallEnabled && (
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  background: isConvActive ? 'rgba(45, 212, 191, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+                  color: isConvActive ? 'var(--accent)' : '#94A3B8',
+                  border: isConvActive ? '1px solid rgba(45, 212, 191, 0.4)' : '1px solid rgba(148, 163, 184, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  {isConvActive ? '🎙️ 対話中' : '👂 待機中'}
+                </span>
+              )}
             </div>
             
             {/* Visualizer Wave */}

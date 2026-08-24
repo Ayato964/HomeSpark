@@ -565,4 +565,49 @@ export class ChatService {
     }
     return response.json();
   }
+
+  /** Determine if the user speech is addressing the AI assistant. */
+  public async checkIsAddressingAI(
+    token: string | null,
+    text: string,
+    lastAiResponse?: string
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.backendUrl}/api/classifier/is-addressing-ai`, {
+        method: 'POST',
+        headers: {
+          ...this.authHeaders(token),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text, last_ai_response: lastAiResponse }),
+      });
+      if (!response.ok) return true; // fallback
+      const data = await response.json();
+      return !!data.is_addressing;
+    } catch {
+      return true; // fallback
+    }
+  }
+
+  /** Determine if the assistant response marks the natural end of the conversation topic. */
+  public async checkIsConversationEnded(
+    token: string | null,
+    aiResponse: string
+  ): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.backendUrl}/api/classifier/is-conversation-ended`, {
+        method: 'POST',
+        headers: {
+          ...this.authHeaders(token),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ai_response: aiResponse }),
+      });
+      if (!response.ok) return false;
+      const data = await response.json();
+      return !!data.is_ended;
+    } catch {
+      return false;
+    }
+  }
 }

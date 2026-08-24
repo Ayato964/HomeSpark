@@ -65,6 +65,7 @@ from core import google_oauth
 from core.google_tools import build_google_tools, _service, _extract_plain_body
 from core.weather_tools import build_weather_tools
 from core.memory_tools import build_memory_tools
+from core.classifier import classify_is_addressing_ai, classify_is_conversation_ended
 from core.store import (
     get_user_current_minutes,
     save_user_minutes_and_archive_old,
@@ -178,6 +179,29 @@ async def summarize_memory_endpoint(
     except Exception as e:
         logger.error(f"[summarize_memory_endpoint] Summarization failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class AddressingAiRequest(BaseModel):
+    text: str
+    last_ai_response: Optional[str] = None
+
+
+class ConversationEndedRequest(BaseModel):
+    ai_response: str
+
+
+@app.post("/api/classifier/is-addressing-ai")
+async def is_addressing_ai_endpoint(req: AddressingAiRequest):
+    """Determine whether the user speech is addressing the AI assistant."""
+    is_addressing = classify_is_addressing_ai(req.text, req.last_ai_response)
+    return {"is_addressing": is_addressing}
+
+
+@app.post("/api/classifier/is-conversation-ended")
+async def is_conversation_ended_endpoint(req: ConversationEndedRequest):
+    """Determine whether the assistant response marks the natural end of the conversation topic."""
+    is_ended = classify_is_conversation_ended(req.ai_response)
+    return {"is_ended": is_ended}
 
 
 @app.get("/api/tts")
