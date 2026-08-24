@@ -545,4 +545,24 @@ export class ChatService {
     const res = await response.json();
     return res.profile;
   }
+
+  /** Summarize voice conversation into minutes and archive previous minutes into skills. */
+  public async summarizeVoiceMemory(
+    token: string | null,
+    history: Array<{ role: string; content: string }>,
+    title?: string
+  ): Promise<{ status: string; minutes: string; archived_previous: boolean }> {
+    const response = await fetch(`${this.backendUrl}/api/memory/summarize`, {
+      method: 'POST',
+      headers: {
+        ...this.authHeaders(token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ history, title }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to summarize voice memory: ${response.status}`);
+    }
+    return response.json();
+  }
 }

@@ -365,6 +365,24 @@ def init_spark_tables() -> None:
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 PRIMARY KEY (tenant_id, user_ref)
             );
+
+            CREATE TABLE IF NOT EXISTS spark_voice_memory (
+                tenant_id UUID NOT NULL,
+                user_ref TEXT NOT NULL,
+                current_minutes TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (tenant_id, user_ref)
+            );
+
+            CREATE TABLE IF NOT EXISTS spark_skills (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL,
+                user_ref TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'conversation_minutes',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
         """)
 
 
@@ -912,7 +930,6 @@ def upsert_user_profile(uid: str, data: dict) -> dict:
 def find_person_by_email(uid: str, email_addr: str) -> dict | None:
     """Find a person in digital business cards (spark_people) by email."""
     init_spark_tables()
-    # Extract clean email address if in format "Name <email@example.com>"
     import re
     match = re.search(r'[\w\.-]+@[\w\.-]+', email_addr)
     if not match:
@@ -942,6 +959,109 @@ def find_person_by_email(uid: str, email_addr: str) -> dict | None:
         "hobbies": row[8],
         "notes": row[9]
     }
+
+
+def get_user_current_minutes(uid: str) -> str | None:
+    """Fetch the latest conversation minutes for the user."""
+    init_spark_tables()
+    with _get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            SELECT current_minutes
+            FROM spark_voice_memory
+            WHERE tenant_id = %s AND user_ref = %s
+            """,
+            (_TENANT, uid),
+        ).fetchone()
+    if not row or not row[0]:
+        return None
+    return row[0]
+
+
+def save_user_minutes_and_archive_old(uid: str, new_minutes: str, archive_title: str | None = None) -> dict:
+    """Save new minutes and archive old minutes into spark_skills if present."""
+    init_spark_tables()
+    with _get_pool().connection() as conn:
+        row = conn.execute(
+            """
+            SELECT current_minutes, updated_at
+            FROM spark_voice_memory
+            WHERE tenant_id = %s AND user_ref = %s
+            """,
+            (_TENANT, uid),
+        ).fetchone()
+
+        archived = False
+        if row and row[0] and row[0].strip():
+            old_minutes = row[0].strip()
+            old_time = row[1]
+            time_str = old_time.strftime("%Y年%m月%d日 %H:%M") if old_time else "過去の会話"
+            title = archive_title or f"会話議事録・記憶 ({time_str})"
+            
+            conn.execute(
+                """
+                INSERT INTO spark_skills (tenant_id, user_ref, title, content, category, created_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                """,
+                (_TENANT, uid, title, old_minutes, "conversation_minutes"),
+            )
+            archived = True
+
+        conn.execute(
+            """
+            INSERT INTO spark_voice_memory (tenant_id, user_ref, current_minutes, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (tenant_id, user_ref)
+            DO UPDATE SET
+                current_minutes = EXCLUDED.current_minutes,
+                updated_at = NOW()
+            """,
+            (_TENANT, uid, new_minutes),
+        )
+
+    return {"status": "ok", "archived_previous": archived, "minutes": new_minutes}
+
+
+def search_user_skills(uid: str, query: str = "", limit: int = 5) -> list[dict]:
+    """Search or list past skills/memories/minutes for the user."""
+    init_spark_tables()
+    with _get_pool().connection() as conn:
+        if query and query.strip():
+            like_term = f"%{query.strip()}%"
+            rows = conn.execute(
+                """
+                SELECT id, title, content, category, created_at
+                FROM spark_skills
+                WHERE tenant_id = %s AND user_ref = %s
+                  AND (title ILIKE %s OR content ILIKE %s OR category ILIKE %s)
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (_TENANT, uid, like_term, like_term, like_term, max(1, min(limit, 20))),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, title, content, category, created_at
+                FROM spark_skills
+                WHERE tenant_id = %s AND user_ref = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (_TENANT, uid, max(1, min(limit, 20))),
+            ).fetchall()
+
+    return [
+        {
+            "id": str(r[0]),
+            "title": r[1],
+            "content": r[2],
+            "category": r[3],
+            "created_at": r[4].isoformat() if r[4] else None,
+        }
+        for r in rows
+    ]
+
 
 
 

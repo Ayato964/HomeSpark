@@ -64,6 +64,12 @@ from core.store import (
 from core import google_oauth
 from core.google_tools import build_google_tools, _service, _extract_plain_body
 from core.weather_tools import build_weather_tools
+from core.memory_tools import build_memory_tools
+from core.store import (
+    get_user_current_minutes,
+    save_user_minutes_and_archive_old,
+    search_user_skills,
+)
 
 # Local-dev login when Google OAuth isn't configured yet.
 _ALLOW_MOCK_AUTH = os.getenv("ALLOW_MOCK_AUTH", "").lower() in ("1", "true", "yes")
@@ -99,6 +105,79 @@ class ChatRequest(BaseModel):
     system_prompt: Optional[str] = None
     tool_mode: Optional[str] = "auto"
     save_to_history: Optional[bool] = True
+
+
+class SummarizeRequest(BaseModel):
+    history: List[Dict[str, Any]]
+    title: Optional[str] = None
+
+
+@app.post("/api/memory/summarize")
+async def summarize_memory_endpoint(
+    req: SummarizeRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Summarize voice conversation history into meeting minutes & archive old minutes into skills."""
+    uid = resolve_uid(authorization)
+    if not req.history or len(req.history) == 0:
+        return {"status": "ok", "message": "No history to summarize", "minutes": ""}
+
+    logger.info(f"[summarize_memory_endpoint] Summarizing {len(req.history)} messages for uid={uid}")
+    
+    # Format conversation history
+    lines = []
+    for msg in req.history:
+        role = msg.get("role", "unknown")
+        speaker = "ユーザー" if role == "user" else "ジェニー(AI)"
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join([item.get("text", "") for item in content if isinstance(item, dict)])
+        if content:
+            lines.append(f"{speaker}: {content}")
+
+    formatted_history = "\n".join(lines)
+
+    summary_instruction = (
+        "あなたは会話ログから今後の対話や業務に役立つ構造化された議事録（Markdown形式）を作成する専門AIです。\n"
+        "以下のユーザーとジェニー（アシスタント）の会話内容を読み、今後の対話で参照すべき重要な記憶・議事録を簡潔にまとめてください。\n\n"
+        "【議事録に含める項目】\n"
+        "- 📌 主な話題・会話の要約\n"
+        "- 🎯 決定事項・合意内容\n"
+        "- 💡 ユーザーの好み・パーソナル情報・発言した重要事項\n"
+        "- 📝 残っているTODOや次回の予定\n\n"
+        "【会話履歴】\n" + formatted_history
+    )
+
+    try:
+        client = OpenAICompatClient()
+        ask_result = client.ask(
+            user_content=summary_instruction,
+            system_prompt="あなたは的確で簡潔な日本語の会話議事録・ナレッジ抽出AIです。",
+            history=[],
+            tool_registry=None,
+            json_schema=None,
+            tool_mode="off",
+            stream=False,
+            on_token=None,
+            temperature=0.7,
+            max_tokens=1024,
+        )
+        generated_minutes = ask_result.content.strip()
+        if not generated_minutes:
+            generated_minutes = "（特筆すべき決定事項なし）"
+
+        # Archive old minutes into skills and save the new minutes
+        res = save_user_minutes_and_archive_old(uid, generated_minutes, archive_title=req.title)
+        logger.info(f"[summarize_memory_endpoint] Successfully saved minutes. Archived old: {res.get('archived_previous')}")
+
+        return {
+            "status": "ok",
+            "minutes": generated_minutes,
+            "archived_previous": res.get("archived_previous")
+        }
+    except Exception as e:
+        logger.error(f"[summarize_memory_endpoint] Summarization failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/tts")
@@ -337,6 +416,7 @@ async def chat_endpoint(
     base_registry.add_many(google_tools)
     base_registry.add_many(build_people_tools(uid))
     base_registry.add_many(build_weather_tools())
+    base_registry.add_many(build_memory_tools(uid))
     wrapped_registry = StreamingToolRegistry(base_registry, event_queue)
 
     # Generate or use chat_id
@@ -387,9 +467,15 @@ async def chat_endpoint(
             content=req.message, # save original content to DB
         )
 
+    # Prepare effective system prompt with dynamic latest minutes
+    effective_system_prompt = req.system_prompt or DEFAULT_SYSTEM_PROMPT
+    current_minutes = get_user_current_minutes(uid)
+    if current_minutes and current_minutes.strip():
+        effective_system_prompt += f"\n\n【直近の会話議事録（前回の会話の記憶）】\n{current_minutes.strip()}"
+
     agent = Agent(
         client=client,
-        system_prompt=req.system_prompt or DEFAULT_SYSTEM_PROMPT,
+        system_prompt=effective_system_prompt,
         tools=wrapped_registry,
         tool_mode=req.tool_mode, # type: ignore
         memory=memory_history,

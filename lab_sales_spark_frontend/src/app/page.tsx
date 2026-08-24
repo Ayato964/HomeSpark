@@ -307,6 +307,47 @@ export default function Home() {
   const voiceHistoryRef = useRef<any[]>([]);
   const activeVoiceAbortControllerRef = useRef<AbortController | null>(null);
   const hasSpokenToolAcknowledgeRef = useRef<boolean>(false);
+  const lastVoiceActivityTimestampRef = useRef<number>(Date.now());
+  const isSummarizingMemoryRef = useRef<boolean>(false);
+
+  // Auto-summarize subagent execution on 30-minute inactivity
+  const triggerAutoSummarizeMinutes = async () => {
+    if (isSummarizingMemoryRef.current || voiceHistoryRef.current.length === 0) {
+      return;
+    }
+    isSummarizingMemoryRef.current = true;
+    const historyToSummarize = [...voiceHistoryRef.current];
+    console.log(`[Auto-Summarize] 30m idle elapsed. Triggering conversation summary subagent for ${historyToSummarize.length} messages...`);
+    try {
+      const chatService = new ChatService();
+      const res = await chatService.summarizeVoiceMemory(token, historyToSummarize);
+      console.log("[Auto-Summarize] Successfully generated minutes and archived old skills into database:", res);
+      // Clean up ephemeral raw conversation history to avoid token limits
+      voiceHistoryRef.current = [];
+    } catch (e) {
+      console.error("[Auto-Summarize] Failed to summarize voice memory:", e);
+    } finally {
+      isSummarizingMemoryRef.current = false;
+    }
+  };
+
+  // Idle timer effect: checks every 30 seconds for 30 minutes of voice silence
+  useEffect(() => {
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - lastVoiceActivityTimestampRef.current;
+      if (
+        elapsed >= IDLE_TIMEOUT_MS &&
+        voiceHistoryRef.current.length > 0 &&
+        !isVoiceProcessingRef.current &&
+        !isPlayingRef.current
+      ) {
+        triggerAutoSummarizeMinutes();
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [token]);
 
   // Smooth Fade-out & Stop Audio (Barge-in support)
   const fadeOutAndStopVoice = (immediately: boolean = false) => {
@@ -487,6 +528,7 @@ export default function Home() {
       'create_digital_business_card': 'デジタル名刺の登録',
       'delete_digital_business_card': 'デジタル名刺の削除',
       'get_weather': '天気予報の確認',
+      'search_past_memories': '過去の会話記録・記憶の照会',
     };
     return map[name] || name;
   };
@@ -513,6 +555,11 @@ export default function Home() {
       '😊お任せくださいっ！天気予報を確認しますね！',
       '🤔少々お待ちくださいね、最新の気象情報をチェックしますっ！',
     ];
+    const memoryPhrases = [
+      '😆はいっ！過去の記憶を調べてみますねっ♪',
+      '😊お任せくださいっ！以前お話しした記録を探しますね！',
+      '🤔少々お待ちくださいね、過去の会話ログを検索しますっ！',
+    ];
     const genericPhrases = [
       '😆はいっ！確認してみますねっ♪',
       '😊わかりましたっ！少々お待ちくださいね！',
@@ -520,7 +567,9 @@ export default function Home() {
     ];
 
     let candidates = genericPhrases;
-    if (toolName.includes('weather') || toolName.includes('forecast') || toolName.includes('tenki')) {
+    if (toolName.includes('memory') || toolName.includes('skill') || toolName.includes('past')) {
+      candidates = memoryPhrases;
+    } else if (toolName.includes('weather') || toolName.includes('forecast') || toolName.includes('tenki')) {
       candidates = weatherPhrases;
     } else if (toolName.includes('calendar')) {
       candidates = calendarPhrases;
@@ -637,6 +686,9 @@ export default function Home() {
   const handleVoiceInput = async (userSpeech: string) => {
     if (!userSpeech.trim()) return;
 
+    // Update voice activity timestamp for idle detection
+    lastVoiceActivityTimestampRef.current = Date.now();
+
     // Reset voice queue states and abort any prior ongoing request
     fadeOutAndStopVoice(true); // Stop any previous playback immediately for the new turn
     isVoiceProcessingRef.current = true;
@@ -713,6 +765,7 @@ export default function Home() {
             // Update in-memory multi-turn voice context history
             voiceHistoryRef.current.push({ role: 'user', content: userSpeech });
             voiceHistoryRef.current.push({ role: 'assistant', content: fullAssistantResponse });
+            lastVoiceActivityTimestampRef.current = Date.now();
             // Cap in-memory history to last 10 turns (20 messages)
             if (voiceHistoryRef.current.length > 20) {
               voiceHistoryRef.current = voiceHistoryRef.current.slice(-20);
