@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { TitleBar } from "../components/TitleBar";
 
 export const metadata: Metadata = {
-  title: "Sales Spark | Next-Gen Sales Platform",
-  description: "Accelerate your sales insights and dashboard performance.",
+  title: "HomeSpark | 専属秘書ジェニー",
+  description: "次世代型AI秘書・音声リアルタイム対話プラットフォーム",
 };
 
 export default function RootLayout({
@@ -12,8 +13,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="ja">
+      <body>
+        <TitleBar />
+        {children}
+      </body>
     </html>
   );
 }

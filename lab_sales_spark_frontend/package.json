@@ -2,11 +2,31 @@
   "name": "main",
   "version": "0.1.0",
   "private": true,
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:electron": "tsc -p electron/tsconfig.electron.json",
+    "dev:electron": "concurrently -k -s first \"npm run dev\" \"wait-on tcp:3000 && npm run build:electron && electron .\"",
+    "dist:win": "npm run build && npm run build:electron && electron-builder --win --dir"
+  },
+  "build": {
+    "appId": "com.homespark.jenny",
+    "productName": "HomeSpark",
+    "directories": {
+      "output": "dist-package"
+    },
+    "files": [
+      "dist-electron/**/*",
+      ".next/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": ["portable", "nsis"]
+    }
   },
   "dependencies": {
     "next": "16.2.9",
@@ -17,7 +37,12 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
     "typescript": "^5",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "wait-on": "^9.1.0"
   }
 }
