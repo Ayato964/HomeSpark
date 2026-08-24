@@ -65,6 +65,7 @@ from core import google_oauth
 from core.google_tools import build_google_tools, _service, _extract_plain_body
 from core.weather_tools import build_weather_tools
 from core.memory_tools import build_memory_tools
+from core.web_search_tools import build_web_search_tools
 from core.classifier import classify_is_addressing_ai, classify_is_conversation_ended
 from core.store import (
     get_user_current_minutes,
@@ -441,6 +442,7 @@ async def chat_endpoint(
     base_registry.add_many(build_people_tools(uid))
     base_registry.add_many(build_weather_tools())
     base_registry.add_many(build_memory_tools(uid))
+    base_registry.add_many(build_web_search_tools())
     wrapped_registry = StreamingToolRegistry(base_registry, event_queue)
 
     # Generate or use chat_id

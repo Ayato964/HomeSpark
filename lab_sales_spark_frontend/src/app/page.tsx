@@ -556,6 +556,7 @@ export default function Home() {
       'delete_digital_business_card': 'デジタル名刺の削除',
       'get_weather': '天気予報の確認',
       'search_past_memories': '過去の会話記録・記憶の照会',
+      'search_web': 'インターネット検索',
     };
     return map[name] || name;
   };
@@ -587,6 +588,11 @@ export default function Home() {
       '😊お任せくださいっ！以前お話しした記録を探しますね！',
       '🤔少々お待ちくださいね、過去の会話ログを検索しますっ！',
     ];
+    const webSearchPhrases = [
+      '😆はいっ！ネットでお調べしますねっ♪',
+      '😊お任せくださいっ！ウェブで最新情報を検索しますね！',
+      '🤔少々お待ちくださいね、インターネットで検索してきますっ！',
+    ];
     const genericPhrases = [
       '😆はいっ！確認してみますねっ♪',
       '😊わかりましたっ！少々お待ちくださいね！',
@@ -594,7 +600,9 @@ export default function Home() {
     ];
 
     let candidates = genericPhrases;
-    if (toolName.includes('memory') || toolName.includes('skill') || toolName.includes('past')) {
+    if (toolName.includes('web') || toolName.includes('search_web') || toolName.includes('internet')) {
+      candidates = webSearchPhrases;
+    } else if (toolName.includes('memory') || toolName.includes('skill') || toolName.includes('past')) {
       candidates = memoryPhrases;
     } else if (toolName.includes('weather') || toolName.includes('forecast') || toolName.includes('tenki')) {
       candidates = weatherPhrases;
