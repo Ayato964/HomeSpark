@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>HomeSpark Subtitle Overlay</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      user-select: none;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pill-container {
+      width: 96%;
+      max-width: 660px;
+      min-height: 52px;
+      padding: 10px 18px;
+      background: rgba(13, 17, 28, 0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(99, 102, 241, 0.45);
+      border-radius: 28px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 20px rgba(99, 102, 241, 0.25);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      opacity: 0;
+      transform: translateY(16px) scale(0.96);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .pill-container.visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    /* Speaker Badge */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 14px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .badge-ai {
+      background: rgba(99, 102, 241, 0.2);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.5);
+    }
+
+    .badge-user {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.5);
+    }
+
+    .badge-status {
+      background: rgba(148, 163, 184, 0.2);
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+    }
+
+    /* Pulsing dot */
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      animation: pulse 1.2s infinite alternate;
+    }
+    .badge-ai .dot { background: #818cf8; box-shadow: 0 0 8px #818cf8; }
+    .badge-user .dot { background: #fbbf24; box-shadow: 0 0 8px #fbbf24; }
+    .badge-status .dot { background: #94a3b8; }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; transform: scale(0.85); }
+      100% { opacity: 1; transform: scale(1.15); }
+    }
+
+    /* Waveform Animation */
+    .wave-bars {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      height: 14px;
+    }
+    .bar {
+      width: 2px;
+      height: 100%;
+      background: #818cf8;
+      border-radius: 1px;
+      animation: wave 0.8s infinite ease-in-out;
+    }
+    .bar:nth-child(1) { animation-delay: 0.0s; height: 6px; }
+    .bar:nth-child(2) { animation-delay: 0.15s; height: 12px; }
+    .bar:nth-child(3) { animation-delay: 0.3s; height: 14px; }
+    .bar:nth-child(4) { animation-delay: 0.45s; height: 8px; }
+
+    @keyframes wave {
+      0%, 100% { transform: scaleY(0.4); }
+      50% { transform: scaleY(1); }
+    }
+
+    /* Text */
+    .subtitle-text {
+      color: #f8fafc;
+      font-size: 13.5px;
+      line-height: 1.45;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-word;
+    }
+
+    .subtitle-text.user-text {
+      color: #fef08a;
+    }
+  </style>
+</head>
+<body>
+  <div id="container" class="pill-container">
+    <div id="badge" class="badge badge-ai">
+      <span class="dot"></span>
+      <span id="badge-label">Jenny</span>
+      <div class="wave-bars" id="wave">
+        <div class="bar"></div>
+        <div class="bar"></div>
+        <div class="bar"></div>
+        <div class="bar"></div>
+      </div>
+    </div>
+    <div id="text" class="subtitle-text"></div>
+  </div>
+
+  <script>
+    const container = document.getElementById("container");
+    const badge = document.getElementById("badge");
+    const badgeLabel = document.getElementById("badge-label");
+    const wave = document.getElementById("wave");
+    const textEl = document.getElementById("text");
+
+    let hideTimer = null;
+
+    // Listen for IPC messages from main process
+    if (window.electronAPI && window.electronAPI.onSubtitleMessage) {
+      window.electronAPI.onSubtitleMessage((data) => {
+        if (!data || !data.text) {
+          container.classList.remove("visible");
+          return;
+        }
+
+        if (hideTimer) {
+          clearTimeout(hideTimer);
+          hideTimer = null;
+        }
+
+        // Set text
+        textEl.textContent = data.text;
+
+        // Set sender style
+        badge.className = "badge";
+        textEl.className = "subtitle-text";
+
+        if (data.sender === "user") {
+          badge.classList.add("badge-user");
+          badgeLabel.textContent = "あなた";
+          wave.style.display = "flex";
+          textEl.classList.add("user-text");
+        } else if (data.sender === "ai") {
+          badge.classList.add("badge-ai");
+          badgeLabel.textContent = "Jenny";
+          wave.style.display = "flex";
+        } else {
+          badge.classList.add("badge-status");
+          badgeLabel.textContent = "ステータス";
+          wave.style.display = "none";
+        }
+
+        container.classList.add("visible");
+      });
+    }
+  </script>
+</body>
+</html>

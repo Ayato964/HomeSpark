@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+export interface SubtitleData {
+  text: string;
+  sender: "user" | "ai" | "status";
+}
+
 export interface ElectronAPI {
   isElectron: boolean;
   platform: string;
@@ -10,6 +15,8 @@ export interface ElectronAPI {
   isMaximized: () => Promise<boolean>;
   showNotification: (title: string, body: string) => void;
   onWindowStateChange: (callback: (isMaximized: boolean) => void) => () => void;
+  updateSubtitle: (subtitle: SubtitleData | null) => void;
+  onSubtitleMessage: (callback: (subtitle: SubtitleData | null) => void) => () => void;
 }
 
 const electronAPI: ElectronAPI = {
@@ -27,6 +34,16 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on("window-state-changed", subscription);
     return () => {
       ipcRenderer.removeListener("window-state-changed", subscription);
+    };
+  },
+  updateSubtitle: (subtitle: SubtitleData | null) => {
+    ipcRenderer.send("update-subtitle", subtitle);
+  },
+  onSubtitleMessage: (callback: (subtitle: SubtitleData | null) => void) => {
+    const subscription = (_event: unknown, data: SubtitleData | null) => callback(data);
+    ipcRenderer.on("subtitle-data", subscription);
+    return () => {
+      ipcRenderer.removeListener("subtitle-data", subscription);
     };
   },
 };

@@ -1,4 +1,4 @@
-import type { ElectronAPI } from "../types/electron";
+import type { ElectronAPI, SubtitleData } from "../types/electron";
 
 export function isElectron(): boolean {
   if (typeof window === "undefined") return false;
@@ -16,5 +16,12 @@ export function showNativeNotification(title: string, body: string) {
     api.showNotification(title, body);
   } else if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
     new Notification(title, { body });
+  }
+}
+
+export function sendSubtitleToOverlay(subtitle: SubtitleData | null) {
+  const api = getElectronAPI();
+  if (api?.updateSubtitle) {
+    api.updateSubtitle(subtitle);
   }
 }

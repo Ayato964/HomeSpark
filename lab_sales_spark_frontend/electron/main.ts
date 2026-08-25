@@ -8,14 +8,17 @@ import {
   NativeImage,
   globalShortcut,
   Notification,
+  screen,
 } from "electron";
 import * as path from "path";
 import { spawn, ChildProcess } from "child_process";
 import * as http from "http";
 
 let mainWindow: BrowserWindow | null = null;
+let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+let overlayHideTimer: NodeJS.Timeout | null = null;
 
 // Child processes for local backend and TTS
 const spawnedProcesses: ChildProcess[] = [];
@@ -173,6 +176,51 @@ function createWindow() {
   });
 }
 
+function createOverlayWindow() {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  const overlayWidth = 680;
+  const overlayHeight = 90;
+
+  overlayWindow = new BrowserWindow({
+    width: overlayWidth,
+    height: overlayHeight,
+    x: Math.round((width - overlayWidth) / 2),
+    y: height - overlayHeight - 20, // Bottom center above taskbar
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    hasShadow: false,
+    resizable: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  });
+
+  overlayWindow.setAlwaysOnTop(true, "screen-saver");
+  overlayWindow.setVisibleOnAllWorkspaces(true);
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+
+  const overlayHtmlPath = isDev
+    ? path.join(__dirname, "../electron/overlay.html")
+    : path.join(__dirname, "overlay.html");
+
+  overlayWindow.loadFile(overlayHtmlPath).catch(() => {
+    // fallback if path differs
+    overlayWindow?.loadFile(path.join(__dirname, "overlay.html"));
+  });
+
+  overlayWindow.on("closed", () => {
+    overlayWindow = null;
+  });
+}
+
 function createTray() {
   const icon = createDefaultTrayIcon();
   tray = new Tray(icon);
@@ -257,6 +305,37 @@ function setupIPC() {
       new Notification({ title, body }).show();
     }
   });
+
+  // Handle Subtitle updates from renderer process
+  ipcMain.on("update-subtitle", (_event, subtitle) => {
+    if (overlayHideTimer) {
+      clearTimeout(overlayHideTimer);
+      overlayHideTimer = null;
+    }
+
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send("subtitle-data", subtitle);
+
+      if (subtitle && subtitle.text && subtitle.text.trim().length > 0) {
+        // Show overlay without stealing focus
+        if (!overlayWindow.isVisible()) {
+          overlayWindow.showInactive();
+        }
+      } else {
+        // Fade out / hide after brief delay
+        overlayHideTimer = setTimeout(() => {
+          if (overlayWindow && !overlayWindow.isDestroyed()) {
+            overlayWindow.webContents.send("subtitle-data", null);
+            setTimeout(() => {
+              if (overlayWindow && !overlayWindow.isDestroyed()) {
+                overlayWindow.hide();
+              }
+            }, 300);
+          }
+        }, 1500);
+      }
+    }
+  });
 }
 
 // App lifecycle
@@ -265,6 +344,7 @@ app.whenReady().then(async () => {
   createTray();
   await ensureBackendServices();
   createWindow();
+  createOverlayWindow();
 
   // Register Global Shortcut (Ctrl + Alt + J / Cmd + Alt + J)
   globalShortcut.register("CommandOrControl+Alt+J", () => {
@@ -281,6 +361,7 @@ app.whenReady().then(async () => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+      createOverlayWindow();
     } else {
       mainWindow?.show();
       mainWindow?.focus();

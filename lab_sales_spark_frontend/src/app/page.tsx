@@ -12,6 +12,7 @@ import { ImapSettingsModal } from "../components/ImapSettingsModal";
 import { UserProfile } from "../types/chat";
 import { ChatService } from "../services/ChatService";
 import { getToken } from "../services/auth";
+import { sendSubtitleToOverlay } from "../utils/electron";
 
 
 // Re-expose the parser utility locally or import it. We can define it here.
@@ -138,6 +139,11 @@ export default function Home() {
   useEffect(() => {
     realtimeCallEnabledRef.current = realtimeCallEnabled;
   }, [realtimeCallEnabled]);
+
+  // Sync subtitle state with Electron floating desktop overlay HUD
+  useEffect(() => {
+    sendSubtitleToOverlay(subtitle);
+  }, [subtitle]);
 
   // Load persisted realtime call preference
   useEffect(() => {
