@@ -9,7 +9,7 @@ import uuid
 import logging
 from typing import Any, Dict, List, Optional, Union
 from fastapi import FastAPI, HTTPException, Header, Cookie, Query
-from fastapi.responses import StreamingResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, RedirectResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -372,6 +372,90 @@ async def tts_proxy_endpoint(
                 "X-TTS-Fallback": "web-speech-fallback",
             }
         )
+
+
+from fastapi import UploadFile, File
+
+@app.post("/api/audio/transcribe")
+async def transcribe_audio_endpoint(
+    audio: UploadFile = File(...),
+    authorization: Optional[str] = Header(None)
+):
+    """Robust audio transcription endpoint for desktop voice call using OpenAI Whisper or Google Gemini multimodal."""
+    try:
+        content = await audio.read()
+        if not content or len(content) < 100:
+            return {"text": ""}
+
+        # 1. Try OpenAI Whisper if OPENAI_API_KEY is configured
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            try:
+                import urllib.request
+                import urllib.parse
+                # Use OpenAI Audio Transcription API
+                boundary = "----WebKitFormBoundary" + secrets.token_hex(16)
+                body = (
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n'
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="language"\r\n\r\nja\r\n'
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="file"; filename="audio.webm"\r\n'
+                    f'Content-Type: audio/webm\r\n\r\n'
+                ).encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+                req = urllib.request.Request(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    data=body,
+                    headers={
+                        "Authorization": f"Bearer {openai_key}",
+                        "Content-Type": f"multipart/form-data; boundary={boundary}",
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=15) as res:
+                    data = json.loads(res.read().decode("utf-8"))
+                    text = data.get("text", "").strip()
+                    if text:
+                        return {"text": text}
+            except Exception as e:
+                logger.warn(f"[Whisper STT error]: {e}")
+
+        # 2. Try Gemini 1.5/2.0 Flash Multimodal Audio if GEMINI_API_KEY is configured
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if gemini_key:
+            try:
+                import urllib.request
+                import base64
+                b64_audio = base64.b64encode(content).decode("utf-8")
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {"text": "ユーザーが話した日本語音声を正確に文字起こししてください。挨拶や短い相槌も含め、発話されたテキストのみを出力してください。"},
+                            {"inline_data": {"mime_type": "audio/webm", "data": b64_audio}}
+                        ]
+                    }],
+                    "generationConfig": {"temperature": 0.0}
+                }
+                req = urllib.request.Request(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=15) as res:
+                    data = json.loads(res.read().decode("utf-8"))
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                        if text:
+                            return {"text": text}
+            except Exception as e:
+                logger.warn(f"[Gemini STT error]: {e}")
+
+        return {"text": ""}
+    except Exception as e:
+        logger.error(f"[Transcribe Exception]: {e}")
+        return {"text": ""}
 
 
 def resolve_uid(authorization: Optional[str], *, allow_anonymous: bool = True) -> str:

@@ -6,7 +6,7 @@ interface ReleaseNotesModalProps {
 }
 
 export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, onClose }) => {
-  const [appVersion, setAppVersion] = React.useState<string>('3.1.14');
+  const [appVersion, setAppVersion] = React.useState<string>('3.1.15');
 
   React.useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).electronAPI?.getAppVersion) {

@@ -1106,13 +1106,122 @@ export default function Home() {
       }
       
       if (navigator?.mediaDevices?.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ audio: true }).then(() => {
+        navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
           if (recognitionRef.current) {
             try {
               recognitionRef.current.start();
             } catch (e) {
               console.error("Speech recognition start:", e);
             }
+          }
+
+          // Web Audio API VAD (Voice Activity Detection) with strict 30s hard limit & memory leak safety
+          try {
+            const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 512;
+            source.connect(analyser);
+
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+              ? 'audio/webm;codecs=opus'
+              : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+            let recorder: MediaRecorder | null = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+            let chunks: Blob[] = [];
+            let isUserSpeaking = false;
+            let silenceTimer: any = null;
+            let vadInterval: any = null;
+            let recordingStartTime = 0;
+
+            const startRecording = () => {
+              if (recorder && recorder.state === 'inactive') {
+                chunks = [];
+                recorder.start(200);
+                recordingStartTime = Date.now();
+              }
+            };
+
+            const stopAndTranscribe = () => {
+              if (recorder && recorder.state === 'recording') {
+                recorder.stop();
+              }
+            };
+
+            recorder.ondataavailable = (e) => {
+              if (e.data && e.data.size > 0) {
+                chunks.push(e.data);
+                // Hard limit: stop after 30 seconds to prevent any memory leak
+                if (Date.now() - recordingStartTime > 30000) {
+                  stopAndTranscribe();
+                }
+              }
+            };
+
+            recorder.onstop = async () => {
+              if (chunks.length > 0 && !isVoiceProcessingRef.current && isVoiceCallActiveRef.current) {
+                const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+                chunks = [];
+                if (audioBlob.size > 2000) {
+                  try {
+                    const formData = new FormData();
+                    formData.append('audio', audioBlob, 'speech.webm');
+                    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+                    const res = await fetch(`${backendUrl}/api/audio/transcribe`, {
+                      method: 'POST',
+                      body: formData,
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data.text && data.text.trim()) {
+                        console.log("[Server-side STT via VAD]:", data.text);
+                        handleVoiceInput(data.text.trim());
+                      }
+                    }
+                  } catch (e) {
+                    console.warn("VAD Server-side transcription error:", e);
+                  }
+                }
+              }
+            };
+
+            // VAD Energy Polling Loop (every 50ms)
+            const buffer = new Uint8Array(analyser.frequencyBinCount);
+            vadInterval = setInterval(() => {
+              if (!isVoiceCallActiveRef.current) {
+                clearInterval(vadInterval);
+                try { audioCtx.close(); } catch {}
+                return;
+              }
+              analyser.getByteFrequencyData(buffer);
+              let sum = 0;
+              for (let i = 0; i < buffer.length; i++) {
+                sum += buffer[i];
+              }
+              const averageVolume = sum / buffer.length;
+
+              // Voice energy threshold (speech detection)
+              if (averageVolume > 15 && !isPlayingRef.current) {
+                if (!isUserSpeaking) {
+                  isUserSpeaking = true;
+                  startRecording();
+                }
+                if (silenceTimer) {
+                  clearTimeout(silenceTimer);
+                  silenceTimer = null;
+                }
+              } else if (isUserSpeaking) {
+                // User was speaking, now silent for 800ms
+                if (!silenceTimer) {
+                  silenceTimer = setTimeout(() => {
+                    isUserSpeaking = false;
+                    silenceTimer = null;
+                    stopAndTranscribe();
+                  }, 800);
+                }
+              }
+            }, 50);
+          } catch (vadErr) {
+            console.warn("VAD Web Audio init failed:", vadErr);
           }
         }).catch((err: any) => {
           console.warn("Microphone access error:", err);

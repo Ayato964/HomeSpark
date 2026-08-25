@@ -1048,7 +1048,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       HomeSpark GeMo (デスクトップ版)
                     </span>
                     <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
-                      現在のバージョン: <strong>v3.1.14</strong>
+                      現在のバージョン: <strong>v3.1.15</strong>
                     </span>
                   </div>
 
