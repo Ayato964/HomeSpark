@@ -513,6 +513,11 @@ async function createWindow() {
     },
   });
 
+  // Allow Google OAuth Sign-In by using standard Chrome User-Agent
+  mainWindow.webContents.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+  );
+
   const showAndCloseSplash = () => {
     updateSplash("準備完了！", 100);
     setTimeout(() => {

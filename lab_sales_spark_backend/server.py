@@ -358,13 +358,15 @@ async def tts_proxy_endpoint(
 def resolve_uid(authorization: Optional[str], *, allow_anonymous: bool = True) -> str:
     """Verify the Bearer session token and return the uid (the user's Google sub).
 
-    Raises 401 on an invalid/expired session. When `allow_anonymous` is False a
-    token is mandatory (account-scoped endpoints)."""
+    When allow_anonymous is True and the token is invalid/expired, fall back to
+    anonymous_user gracefully rather than blocking the chat interface."""
     if authorization and authorization.startswith("Bearer "):
         claims = verify_session(authorization[7:])
-        if not claims:
+        if claims and claims.get("sub"):
+            return claims["sub"]
+        if not allow_anonymous:
             raise HTTPException(status_code=401, detail="Invalid or expired session")
-        return claims["sub"]
+        return "anonymous_user"
     if not allow_anonymous:
         raise HTTPException(status_code=401, detail="Authentication required")
     return "anonymous_user"

@@ -73,10 +73,14 @@ export function loginQuick(
   }
 }
 
-export function logout(): void {
+export function clearInvalidSession(): void {
   if (typeof window !== 'undefined') {
     window.localStorage.removeItem(STORAGE_KEY);
   }
+}
+
+export function logout(): void {
+  clearInvalidSession();
 }
 
 /** Return the stored session token if present and unexpired, else null. */

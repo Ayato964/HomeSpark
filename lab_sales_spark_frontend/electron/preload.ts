@@ -34,7 +34,7 @@ export interface ElectronAPI {
 const electronAPI: ElectronAPI = {
   isElectron: true,
   platform: process.platform,
-  appVersion: "3.1.7",
+  appVersion: "3.1.8",
   minimize: () => ipcRenderer.send("window-minimize"),
   maximize: () => ipcRenderer.send("window-maximize"),
   close: () => ipcRenderer.send("window-close"),

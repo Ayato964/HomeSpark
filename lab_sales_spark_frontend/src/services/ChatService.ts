@@ -226,6 +226,12 @@ export class ChatService {
       method: 'GET',
       headers: this.authHeaders(token),
     });
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('spark_session');
+      }
+      return { connected: false, configured: false };
+    }
     if (!response.ok) {
       throw new Error(`Failed to fetch Google status: ${response.status}`);
     }
@@ -238,6 +244,12 @@ export class ChatService {
       method: 'DELETE',
       headers: this.authHeaders(token),
     });
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('spark_session');
+      }
+      return;
+    }
     if (!response.ok) {
       throw new Error(`Failed to disconnect Google: ${response.status}`);
     }
