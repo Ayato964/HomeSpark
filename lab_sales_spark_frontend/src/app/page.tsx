@@ -11,7 +11,7 @@ import { ReleaseNotesModal } from "../components/ReleaseNotesModal";
 import { ImapSettingsModal } from "../components/ImapSettingsModal";
 import { SettingsModal } from "../components/SettingsModal";
 import { OnboardingModal } from "../components/OnboardingModal";
-import { isDesktopApp } from "../utils/platform";
+import { isDesktopApp, getBackendBaseUrl } from "../utils/platform";
 import { UserProfile } from "../types/chat";
 import { ChatService } from "../services/ChatService";
 import { getToken, loginQuick, getUser } from "../services/auth";
@@ -130,11 +130,38 @@ export default function Home() {
   // Onboarding & Platform states
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [isVoiceCallSupported, setIsVoiceCallSupported] = useState<boolean>(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'error'>('checking');
+  const [backendError, setBackendError] = useState<string | null>(null);
 
   const isVoiceMutedRef = useRef<boolean>(false);
   const realtimeCallEnabledRef = useRef<boolean>(false);
   const isConvActiveRef = useRef<boolean>(false);
   const lastAssistantResponseRef = useRef<string>('');
+
+  // Monitor backend health
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    const checkHealth = async () => {
+      try {
+        const baseUrl = getBackendBaseUrl();
+        const res = await fetch(`${baseUrl}/api/health`, { method: 'GET', cache: 'no-store' });
+        if (res.ok) {
+          setBackendStatus('connected');
+          setBackendError(null);
+        } else {
+          setBackendStatus('error');
+          setBackendError(`バックエンドサーバーが HTTP ${res.status} を返しました`);
+        }
+      } catch (err: any) {
+        setBackendStatus('error');
+        setBackendError(err?.message || 'バックエンドサーバー (8080) に接続できません');
+      }
+    };
+
+    checkHealth();
+    interval = setInterval(checkHealth, 6000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const desktop = isDesktopApp();
@@ -1537,6 +1564,78 @@ export default function Home() {
         onToggleRealtimeCall={handleToggleRealtimeCall}
         isVoiceCallSupported={isVoiceCallSupported}
       />
+
+      {/* Backend Status Notification Banner */}
+      {backendStatus === 'error' && (
+        <div style={{
+          position: 'fixed',
+          top: '14px',
+          right: '18px',
+          zIndex: 99999,
+          background: 'rgba(239, 68, 68, 0.12)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          backdropFilter: 'blur(12px)',
+          padding: '10px 16px',
+          borderRadius: '10px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+          animation: 'fadeInScreen 0.3s ease'
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#EF4444' }}>
+              バックエンド未接続
+            </span>
+            <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+              {backendError || 'FastAPI サーバー (8080) を確認してください'}
+            </span>
+          </div>
+          <button
+            onClick={async () => {
+              setBackendStatus('checking');
+              try {
+                const res = await fetch(`${getBackendBaseUrl()}/api/health`, { cache: 'no-store' });
+                if (res.ok) {
+                  setBackendStatus('connected');
+                  setBackendError(null);
+                } else {
+                  setBackendStatus('error');
+                  setBackendError(`HTTP ${res.status}`);
+                }
+              } catch (e: any) {
+                setBackendStatus('error');
+                setBackendError(e?.message || '接続できません');
+              }
+            }}
+            style={{
+              padding: '4px 8px',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '6px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              color: '#EF4444',
+              cursor: 'pointer',
+              fontSize: '11px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M23 4v6h-6"/>
+              <path d="M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            再試行
+          </button>
+        </div>
+      )}
 
       {/* ============ MAIN AREA ============ */}
       {user ? (

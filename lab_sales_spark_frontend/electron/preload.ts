@@ -28,6 +28,7 @@ export interface ElectronAPI {
   checkForUpdates: () => void;
   restartAndInstallUpdate: () => void;
   onUpdateStatus: (callback: (data: UpdateStatusData) => void) => () => void;
+  getBackendPort: () => Promise<number>;
 }
 
 const electronAPI: ElectronAPI = {
@@ -58,12 +59,8 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.removeListener("subtitle-data", subscription);
     };
   },
-  checkForUpdates: () => {
-    ipcRenderer.send("check-for-updates");
-  },
-  restartAndInstallUpdate: () => {
-    ipcRenderer.send("restart-and-install-update");
-  },
+  checkForUpdates: () => ipcRenderer.send("check-for-updates"),
+  restartAndInstallUpdate: () => ipcRenderer.send("restart-and-install-update"),
   onUpdateStatus: (callback: (data: UpdateStatusData) => void) => {
     const subscription = (_event: unknown, data: UpdateStatusData) => callback(data);
     ipcRenderer.on("update-status", subscription);
@@ -71,6 +68,7 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.removeListener("update-status", subscription);
     };
   },
+  getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);

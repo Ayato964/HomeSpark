@@ -6,9 +6,7 @@
 // on every API call. The token's payload is base64url JSON we can decode to
 // show the user; only the backend can mint/validate it.
 
-const backendUrl =
-  process.env.NEXT_PUBLIC_API_URL ||
-  'https://sales-spark-backend-84357422286.asia-northeast1.run.app';
+import { getBackendBaseUrl } from '../utils/platform';
 
 const STORAGE_KEY = 'spark_session';
 
@@ -47,7 +45,7 @@ function decodeClaims(token: string): SessionClaims | null {
 /** Start login: full-page redirect to the backend → Google consent. */
 export function login(): void {
   if (typeof window !== 'undefined') {
-    window.location.href = `${backendUrl}/api/auth/login`;
+    window.location.href = `${getBackendBaseUrl()}/api/auth/login`;
   }
 }
 

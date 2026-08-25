@@ -90,10 +90,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }}>
       {/* Title Header */}
       <div style={{ padding: '20px 18px 18px', display: 'flex', alignItems: 'center', gap: '11px' }}>
-        <span style={{ width: '18px', height: '18px', background: 'var(--accent)', flex: 'none' }}></span>
+        <div style={{
+          width: '20px',
+          height: '20px',
+          borderRadius: '6px',
+          background: 'linear-gradient(135deg, #4285F4 0%, #34A853 50%, #FBBC05 75%, #EA4335 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: '#0d0f17' }} />
+        </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '15px', fontWeight: 600, letterSpacing: '.10em' }}>HOMESPARK</span>
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo ver.3.0</span>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '15px', fontWeight: 600, letterSpacing: '.10em', color: 'var(--text)' }}>HOMESPARK</span>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo 3.0</span>
         </div>
       </div>
 
@@ -125,10 +136,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '5px'
+                gap: '6px'
               }}
             >
-              <span>💬</span> Chat
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+              Chat
             </button>
             <button
               onClick={() => onChangeAppMode?.('spark')}
@@ -147,10 +161,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '5px'
+                gap: '6px'
               }}
             >
-              <span>✨</span> GeMo (秘書)
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
+              GeMo (秘書)
             </button>
           </div>
         </div>
@@ -176,22 +193,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 fontSize: '12px', 
                 letterSpacing: '.04em', 
                 color: 'var(--text)', 
-                borderRadius: '20px' 
+                borderRadius: '12px',
+                transition: 'all 0.15s ease'
               }}
             >
-              <span>＋ 新しいチャット</span>
-              <span style={{ color: 'var(--muted)', fontSize: '11px' }}>⌘N</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                <span>新しいチャット</span>
+              </div>
+              <span style={{ color: 'var(--muted)', fontSize: '11px' }}>Ctrl+N</span>
             </button>
           </div>
 
           {/* Search Placeholder */}
           <div style={{ padding: '0 14px 14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 11px', background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: '18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 11px', background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: '10px' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2">
                 <circle cx="11" cy="11" r="7"/>
                 <line x1="21" y1="21" x2="16.5" y2="16.5"/>
               </svg>
-              <span style={{ fontSize: '12.5px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono',monospace" }}>search…</span>
+              <span style={{ fontSize: '12.5px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono',monospace" }}>検索…</span>
             </div>
           </div>
 
@@ -242,7 +266,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         border: 'none',
                         color: 'var(--text3)',
                         cursor: 'pointer',
-                        fontSize: '12px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -259,7 +282,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         e.currentTarget.style.backgroundColor = 'transparent';
                       }}
                     >
-                      🗑️
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                      </svg>
                     </button>
                   )}
 
@@ -284,7 +310,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             color: 'var(--faint)',
             padding: '4px 10px 4px'
           }}>
-            // SPARK メニュー
+            // SPARK ツール
           </div>
 
           {/* Home Button */}
@@ -306,6 +332,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               transition: 'all 0.15s ease'
             }}
           >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
             <span>ホーム</span>
           </button>
 
@@ -328,6 +358,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               transition: 'all 0.15s ease'
             }}
           >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
             <span>デジタル名刺</span>
           </button>
         </div>
@@ -336,34 +371,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Unauthenticated Placeholder */}
       {!user && (
         <div style={{ flex: 1, padding: '40px 18px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '16px', textAlign: 'center' }}>
-          <div style={{ fontSize: '28px', opacity: 0.85 }}>🔒</div>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: 'var(--panel)',
+            border: '1px solid var(--border3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--muted)'
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
           <p style={{ fontSize: '12.5px', color: 'var(--text3)', margin: 0, lineHeight: '1.6' }}>
             機能を利用するには<br />ログインが必要です。
           </p>
         </div>
       )}
 
-
-      {/* User / Authentication Area */}
+      {/* User / Authentication Area (Google Professional Styled) */}
       <div ref={userMenuRef} style={{ position: 'relative' }}>
         {userMenuOpen && (
           <div style={{
             position: 'absolute',
-            bottom: '48px',
+            bottom: '52px',
             left: '12px',
-            width: '180px',
-            background: 'var(--panel)',
-            border: '1px solid var(--border3)',
-            borderRadius: '8px',
-            boxShadow: '0 8px 20px rgba(0,0,0,0.25)',
+            width: '210px',
+            background: '#131722',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: '12px',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
             zIndex: 10,
-            padding: '4px 0',
+            padding: '6px',
           }}>
             <button
               onClick={onOpenReleaseNotes}
               style={{
                 width: '100%',
-                padding: '8px 12px',
+                padding: '8px 10px',
                 background: 'transparent',
                 border: 'none',
                 color: 'var(--text)',
@@ -373,14 +422,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                transition: 'background 0.2s ease',
+                gap: '10px',
+                borderRadius: '8px',
+                transition: 'background 0.15s ease',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              <span>🚀</span> リリースノート
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+              <span>リリースノート</span>
             </button>
+
             {/* Realtime Call Toggle (Desktop & GPU only) */}
             {isVoiceCallSupported && (
               <div
@@ -389,38 +443,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
+                  padding: '8px 10px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
-                  transition: 'background 0.2s ease',
+                  transition: 'background 0.15s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 title="オンにするとAIが常に待機し、マイクボタンはミュート切り替えになります"
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: 'var(--text)' }}>
-                  <span>🎙️</span>
-                  <span>リアルタイム呼び出し</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12.5px', color: 'var(--text)' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                  <span>リアルタイム対話</span>
                 </div>
                 <div style={{
-                  width: '32px',
-                  height: '18px',
+                  width: '28px',
+                  height: '16px',
                   borderRadius: '10px',
-                  background: realtimeCallEnabled ? 'var(--accent)' : 'var(--border3)',
+                  background: realtimeCallEnabled ? 'var(--accent)' : 'rgba(255,255,255,0.15)',
                   position: 'relative',
                   transition: 'background 0.2s ease',
                   flexShrink: 0,
                 }}>
                   <div style={{
-                    width: '14px',
-                    height: '14px',
+                    width: '12px',
+                    height: '12px',
                     borderRadius: '50%',
                     background: '#fff',
                     position: 'absolute',
                     top: '2px',
-                    left: realtimeCallEnabled ? '16px' : '2px',
+                    left: realtimeCallEnabled ? '14px' : '2px',
                     transition: 'left 0.2s ease',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
                   }} />
                 </div>
               </div>
@@ -433,7 +492,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               style={{
                 width: '100%',
-                padding: '8px 12px',
+                padding: '8px 10px',
                 background: 'transparent',
                 border: 'none',
                 color: 'var(--text)',
@@ -443,14 +502,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                transition: 'background 0.2s ease',
+                gap: '10px',
+                borderRadius: '8px',
+                transition: 'background 0.15s ease',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              <span>👤</span> プロフィールを編集
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              <span>アカウント設定</span>
             </button>
+
             {onOpenImapSettings && (
               <button
                 onClick={() => {
@@ -459,7 +524,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 style={{
                   width: '100%',
-                  padding: '8px 12px',
+                  padding: '8px 10px',
                   background: 'transparent',
                   border: 'none',
                   color: 'var(--text)',
@@ -469,15 +534,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  transition: 'background 0.2s ease',
+                  gap: '10px',
+                  borderRadius: '8px',
+                  transition: 'background 0.15s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <span>📧</span> 外部メール連携 (IMAP)
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                <span>メール連携 (IMAP)</span>
               </button>
             )}
+
             {onOpenSettings && (
               <button
                 onClick={() => {
@@ -486,7 +557,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 style={{
                   width: '100%',
-                  padding: '8px 12px',
+                  padding: '8px 10px',
                   background: 'transparent',
                   border: 'none',
                   color: 'var(--text)',
@@ -496,15 +567,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  transition: 'background 0.2s ease',
+                  gap: '10px',
+                  borderRadius: '8px',
+                  transition: 'background 0.15s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <span>⚙️</span> 環境設定 (保存先切替など)
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                <span>環境設定 (保存先切替)</span>
               </button>
             )}
+
             {user && (
               <button
                 onClick={() => {
@@ -513,7 +590,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 style={{
                   width: '100%',
-                  padding: '8px 12px',
+                  padding: '8px 10px',
                   background: 'transparent',
                   border: 'none',
                   color: '#EF4444',
@@ -523,14 +600,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  transition: 'background 0.2s ease',
-                  borderTop: '1px solid var(--border2)'
+                  gap: '10px',
+                  borderRadius: '8px',
+                  transition: 'background 0.15s ease',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                  marginTop: '4px'
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <span>🚪</span> ログアウト
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+                <span>ログアウト</span>
               </button>
             )}
           </div>
@@ -554,9 +638,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 width: '100%',
                 padding: '9px 12px',
                 border: '1px solid var(--border3)',
-                background: googleLinked ? 'rgba(45,212,191,0.08)' : 'var(--panel)',
+                background: googleLinked ? 'rgba(66, 133, 244, 0.08)' : 'var(--panel)',
                 cursor: googleConfigured ? 'pointer' : 'not-allowed',
-                opacity: googleConfigured ? 1 : 0.55,
+                opacity: googleConfigured ? 1 : 0.6,
                 fontFamily: "'IBM Plex Sans',system-ui,sans-serif",
                 fontSize: '12px',
                 fontWeight: 500,
@@ -576,12 +660,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 fontFamily: "'IBM Plex Mono',monospace",
                 fontSize: '8.5px',
                 letterSpacing: '.1em',
-                color: googleLinked ? 'var(--accent)' : 'var(--muted)',
-                border: '1px solid var(--border3)',
-                padding: '1px 4px',
+                color: googleLinked ? '#4285F4' : 'var(--muted)',
+                border: `1px solid ${googleLinked ? 'rgba(66, 133, 244, 0.4)' : 'var(--border3)'}`,
+                padding: '1px 5px',
                 borderRadius: '4px',
+                background: googleLinked ? 'rgba(66, 133, 244, 0.1)' : 'transparent',
               }}>
-                {googleLinked ? '連携済' : '未連携'}
+                {googleLinked ? '連携中' : '未設定'}
               </span>
             </button>
           </div>
@@ -593,7 +678,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={onToggleUserMenu}
             style={{ 
               borderTop: '1px solid var(--border)', 
-              padding: '13px 16px', 
+              padding: '12px 14px', 
               display: 'flex', 
               alignItems: 'center', 
               gap: '10px',
@@ -609,48 +694,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <img 
                 src={user.photoURL} 
                 alt={user.displayName || "User"} 
-                style={{ width: '26px', height: '26px', borderRadius: '50%', objectFit: 'cover' }} 
+                style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }} 
               />
             ) : (
               <span style={{ 
-                width: '26px', 
-                height: '26px', 
-                background: 'var(--panel)', 
-                border: '1px solid var(--border3)', 
+                width: '28px', 
+                height: '28px', 
+                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
+                border: '1px solid rgba(255, 255, 255, 0.12)', 
                 flex: 'none', 
                 display: 'flex', 
                 alignItems: 'center', 
                 justifyContent: 'center', 
                 fontFamily: "'IBM Plex Mono',monospace", 
-                fontSize: '11px', 
-                color: 'var(--accent)', 
-                borderRadius: '50%' 
+                fontSize: '11.5px', 
+                fontWeight: 600,
+                color: '#60a5fa', 
+                borderRadius: '50%',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
               }}>
                 {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
               </span>
             )}
-            <span style={{ 
-              flex: 1, 
-              fontSize: '12.5px', 
-              fontWeight: 500, 
-              whiteSpace: 'nowrap', 
-              overflow: 'hidden', 
-              textOverflow: 'ellipsis' 
-            }}>
-              {user.displayName || user.email?.split('@')[0]}
-            </span>
-            <span style={{ 
-              fontFamily: "'IBM Plex Mono',monospace", 
-              fontSize: '8.5px', 
-              letterSpacing: '.12em', 
-              color: 'var(--muted)',
-              border: '1px solid var(--border3)',
-              padding: '1px 4px',
-              borderRadius: '4px',
-              background: 'var(--panel)'
-            }}>
-              {user.uid.startsWith('mock-user') ? 'MOCK' : 'USER'}
-            </span>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <span style={{ 
+                fontSize: '12.5px', 
+                fontWeight: 600, 
+                whiteSpace: 'nowrap', 
+                overflow: 'hidden', 
+                textOverflow: 'ellipsis',
+                color: 'var(--text)'
+              }}>
+                {user.displayName || user.email?.split('@')[0]}
+              </span>
+              <span style={{
+                fontSize: '10.5px',
+                color: 'var(--muted)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}>
+                {user.email || 'ローカルセッション'}
+              </span>
+            </div>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--border)', padding: '14px' }}>
@@ -662,25 +751,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 justifyContent: 'center', 
                 gap: '8px',
                 width: '100%', 
-                padding: '9px 12px', 
-                border: '1px solid var(--border3)', 
-                background: 'var(--panel)', 
+                padding: '10px 12px', 
+                border: '1px solid rgba(255, 255, 255, 0.15)', 
+                background: 'linear-gradient(180deg, #1e2433 0%, #131722 100%)', 
                 cursor: 'pointer', 
                 fontFamily: "'IBM Plex Sans',system-ui,sans-serif", 
                 fontSize: '12.5px', 
-                fontWeight: 600,
-                color: 'var(--text)', 
-                borderRadius: '10px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                transition: 'background 0.2s, border-color 0.2s'
+                fontWeight: 600, 
+                color: '#ffffff', 
+                borderRadius: '10px', 
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)', 
+                transition: 'all 0.2s ease'
               }}
               onMouseEnter={(e) => { 
-                e.currentTarget.style.background = 'var(--hover)'; 
-                e.currentTarget.style.borderColor = 'var(--accent)'; 
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)'; 
               }}
               onMouseLeave={(e) => { 
-                e.currentTarget.style.background = 'var(--panel)'; 
-                e.currentTarget.style.borderColor = 'var(--border3)'; 
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'; 
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">

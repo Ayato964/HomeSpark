@@ -37,6 +37,7 @@ let isQuitting = false;
 let overlayHideTimer: NodeJS.Timeout | null = null;
 let internalServer: http.Server | null = null;
 let dynamicFrontendUrl: string = "http://127.0.0.1:3000";
+let resolvedBackendPort: number = 8080;
 
 let lastSplashState = { log: "システム初期化中...", percent: 20, subLog: "高速エンジンを準備しています" };
 
@@ -55,6 +56,28 @@ function updateSplash(log: string, percent: number, subLog?: string) {
   if (splashWindow && !splashWindow.isDestroyed()) {
     splashWindow.webContents.send("splash-progress", { log, percent, subLog });
   }
+}
+
+// Find an available port dynamically (tries startPort first, then assigns OS free port)
+function findAvailablePort(startPort: number = 8080): Promise<number> {
+  return new Promise((resolve) => {
+    const srv = http.createServer();
+    srv.listen(startPort, "127.0.0.1", () => {
+      const addr = srv.address();
+      const port = typeof addr === "object" && addr ? addr.port : startPort;
+      srv.close(() => resolve(port));
+    });
+    srv.on("error", () => {
+      // Port in use, get OS dynamic port
+      const dynSrv = http.createServer();
+      dynSrv.listen(0, "127.0.0.1", () => {
+        const addr = dynSrv.address();
+        const port = typeof addr === "object" && addr ? addr.port : startPort + 1;
+        dynSrv.close(() => resolve(port));
+      });
+      dynSrv.on("error", () => resolve(startPort + 1));
+    });
+  });
 }
 
 // MIME types for embedded static server
@@ -312,27 +335,30 @@ function createSplashWindow() {
 async function ensureBackendServices() {
   const { backendDir, venvPython, ttsDir } = getBackendConfig();
 
-  updateSplash("🔍 ハードウェア環境（GPU / CUDA）を診断中...", 25, "システム診断");
+  updateSplash("ハードウェア環境（GPU / CUDA）を診断中...", 25, "システム診断");
   const hasGpu = await checkGpuPresent(venvPython);
   console.log("[Electron] GPU Presence Diagnosis:", hasGpu);
 
-  // 1. Ensure Backend Server (FastAPI on port 8080)
-  updateSplash("🚀 FastAPI バックエンドサーバーを起動中 (8080)...", 50, "データベース＆API準備");
-  const backendAlive = await checkPortAlive(8080);
+  // 1. Resolve free backend port dynamically
+  resolvedBackendPort = await findAvailablePort(8080);
+  console.log(`[Electron] Starting FastAPI backend on dynamically resolved port: ${resolvedBackendPort}`);
+
+  // 2. Ensure Backend Server (FastAPI)
+  updateSplash(`FastAPI バックエンドサーバーを起動中 (${resolvedBackendPort})...`, 50, "データベース＆API準備");
+  const backendAlive = await checkPortAlive(resolvedBackendPort);
   if (!backendAlive) {
     if (fs.existsSync(venvPython)) {
       try {
-        // Use -s -E to isolate Python from user's global PYTHONPATH and environment pollution
         const backendProc = spawn(
           venvPython,
-          ["-s", "-E", "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8080"],
+          ["-s", "-E", "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", resolvedBackendPort.toString()],
           {
             cwd: backendDir,
             stdio: "pipe",
             detached: false,
             shell: false,
             windowsHide: true,
-            env: { ...process.env, PARENT_ELECTRON_PID: process.pid.toString() },
+            env: { ...process.env, PARENT_ELECTRON_PID: process.pid.toString(), PORT: resolvedBackendPort.toString() },
           }
         );
 
@@ -342,27 +368,27 @@ async function ensureBackendServices() {
 
         backendProc.on("error", (err) => {
           console.warn("[Backend Proc Error]:", err.message);
-          updateSplash(`⚠️ バックエンド起動失敗: ${err.message}`, 80);
+          updateSplash(`バックエンド起動失敗: ${err.message}`, 80);
         });
 
         backendProc.on("exit", (code) => {
           console.warn(`[Backend Exited]: code=${code}`);
           if (code !== 0 && !isQuitting) {
-            updateSplash(`⚠️ バックエンドが異常終了しました (code: ${code})`, 80);
+            updateSplash(`バックエンドが異常終了しました (code: ${code})`, 80);
           }
         });
 
         spawnedProcesses.push(backendProc);
       } catch (e: any) {
         console.error("[Electron] Failed to spawn backend:", e);
-        updateSplash(`⚠️ バックエンド起動例外: ${e?.message || e}`, 80);
+        updateSplash(`バックエンド起動例外: ${e?.message || e}`, 80);
       }
     }
   }
 
-  // 2. Ensure Local TTS Engine (port 8008) ONLY IF GPU IS PRESENT
+  // 3. Ensure Local TTS Engine (port 8008) ONLY IF GPU IS PRESENT
   if (hasGpu) {
-    updateSplash("🎙️ Irodori-TTS 音声合成エンジンを起動中 (8008)...", 75, "CUDA 高速音声推論");
+    updateSplash("Irodori-TTS 音声合成エンジンを起動中 (8008)...", 75, "CUDA 高速音声推論");
     const ttsAlive = await checkPortAlive(8008);
     if (!ttsAlive) {
       const ttsScript = path.join(ttsDir, "app_voice.py");
@@ -385,10 +411,10 @@ async function ensureBackendServices() {
       }
     }
   } else {
-    updateSplash("⚡ GPU非搭載環境: 音声合成エンジンの起動をスキップしました", 75, "軽量テキストチャットモード");
+    updateSplash("GPU非搭載環境: 音声合成エンジンの起動をスキップしました", 75, "軽量テキストチャットモード");
   }
 
-  updateSplash("✨ 準備完了！HomeSpark GeMo を起動します...", 95);
+  updateSplash("準備完了！HomeSpark GeMo を起動します...", 95);
 }
 
 // Complete zombie process annihilation via taskkill tree kill
@@ -405,7 +431,6 @@ function cleanupProcesses() {
     try {
       if (proc.pid) {
         if (process.platform === "win32") {
-          // Forcefully kill entire process tree (/t /f) to annihilate zombie processes
           spawnSync("taskkill", ["/pid", proc.pid.toString(), "/t", "/f"], { windowsHide: true });
         } else {
           proc.kill("SIGTERM");
@@ -447,7 +472,7 @@ async function createWindow() {
   });
 
   const showAndCloseSplash = () => {
-    updateSplash("🚀 準備完了！", 100);
+    updateSplash("準備完了！", 100);
     setTimeout(() => {
       mainWindow?.show();
       mainWindow?.focus();
@@ -457,12 +482,14 @@ async function createWindow() {
     }, 300);
   };
 
-  mainWindow.loadURL(dynamicFrontendUrl).then(() => {
+  const targetUrl = `${dynamicFrontendUrl}/?backendPort=${resolvedBackendPort}`;
+
+  mainWindow.loadURL(targetUrl).then(() => {
     showAndCloseSplash();
   }).catch((err) => {
     console.warn("[Electron] Initial loadURL failed, retrying:", err);
     setTimeout(() => {
-      mainWindow?.loadURL(dynamicFrontendUrl).finally(() => {
+      mainWindow?.loadURL(targetUrl).finally(() => {
         showAndCloseSplash();
       });
     }, 600);
@@ -543,7 +570,7 @@ function setupAutoUpdater() {
     mainWindow?.webContents.send("update-status", { status: "available", version: info.version });
     if (Notification.isSupported()) {
       new Notification({
-        title: "🎉 新しいバージョンが見つかりました",
+        title: "新しいバージョンが見つかりました",
         body: `HomeSpark GeMo v${info.version} をダウンロードしています...`,
       }).show();
     }
@@ -564,7 +591,7 @@ function setupAutoUpdater() {
     mainWindow?.webContents.send("update-status", { status: "downloaded", version: info.version });
     if (Notification.isSupported()) {
       new Notification({
-        title: "✨ アップデートの準備が完了しました！",
+        title: "アップデートの準備が完了しました！",
         body: "アプリを再起動すると、自動的に最新バージョンが適用されます。",
       }).show();
     }
@@ -583,7 +610,7 @@ function createTray() {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "🎙️ GeMoを開く (Ctrl+Alt+J)",
+      label: "GeMoを開く (Ctrl+Alt+J)",
       click: () => {
         if (mainWindow) {
           mainWindow.show();
@@ -593,7 +620,7 @@ function createTray() {
     },
     { type: "separator" },
     {
-      label: "🔄 アップデートを確認",
+      label: "アップデートを確認",
       click: () => {
         if (!isDev) {
           autoUpdater.checkForUpdates().catch((err) => {
@@ -609,20 +636,20 @@ function createTray() {
       },
     },
     {
-      label: "🔄 再読み込み",
+      label: "再読み込み",
       click: () => {
         mainWindow?.reload();
       },
     },
     {
-      label: "⚙️ 開発者ツール",
+      label: "開発者ツール",
       click: () => {
         mainWindow?.webContents.toggleDevTools();
       },
     },
     { type: "separator" },
     {
-      label: "❌ 完全に終了",
+      label: "完全に終了",
       click: () => {
         isQuitting = true;
         cleanupProcesses();
@@ -650,6 +677,10 @@ function setupIPC() {
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.webContents.send("splash-progress", lastSplashState);
     }
+  });
+
+  ipcMain.handle("get-backend-port", () => {
+    return resolvedBackendPort;
   });
 
   ipcMain.on("window-minimize", () => {

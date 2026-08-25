@@ -1,4 +1,5 @@
 import { ChatEvent, MessageContentItem, Person, UserProfile, ImapAccount } from '../types/chat';
+import { getBackendBaseUrl } from '../utils/platform';
 
 export class ChatService {
   private backendUrl: string;
@@ -38,9 +39,7 @@ export class ChatService {
   private systemPrompt: string = ChatService.CHAT_SYSTEM_PROMPT;
 
   constructor() {
-    this.backendUrl = typeof window !== 'undefined'
-      ? (process.env.NEXT_PUBLIC_API_URL || "")
-      : (process.env.NEXT_PUBLIC_API_URL || "https://sales-spark-backend-84357422286.asia-northeast1.run.app");
+    this.backendUrl = getBackendBaseUrl();
   }
 
   public static cleanContent(content: any): any {
