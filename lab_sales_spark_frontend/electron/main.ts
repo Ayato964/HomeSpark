@@ -200,11 +200,18 @@ function findProjectRootDir(): string {
 function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: string } {
   if (process.resourcesPath) {
     const embeddedBackend = path.join(process.resourcesPath, "app_backend");
-    const embeddedPython = path.join(embeddedBackend, ".venv", "Scripts", "python.exe");
-    if (fs.existsSync(path.join(embeddedBackend, "server.py")) && fs.existsSync(embeddedPython)) {
+    const portablePython = path.join(embeddedBackend, "python_runtime", "python.exe");
+    const venvPython = path.join(embeddedBackend, ".venv", "Scripts", "python.exe");
+
+    const resolvedPython = fs.existsSync(portablePython)
+      ? portablePython
+      : (fs.existsSync(venvPython) ? venvPython : "python.exe");
+
+    if (fs.existsSync(path.join(embeddedBackend, "server.py"))) {
+      console.log("[Electron] Using standalone embedded backend with Python:", resolvedPython);
       return {
         backendDir: embeddedBackend,
-        venvPython: embeddedPython,
+        venvPython: resolvedPython,
         ttsDir: path.join(embeddedBackend, "Irodori-TTS-Lite"),
       };
     }
@@ -212,11 +219,16 @@ function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: s
 
   const rootDir = findProjectRootDir();
   const backendDir = path.join(rootDir, "lab_sales_spark_backend");
+  const portablePython = path.join(backendDir, "python_runtime", "python.exe");
   const venvPython = path.join(backendDir, ".venv", "Scripts", "python.exe");
+
+  const resolvedPython = fs.existsSync(portablePython)
+    ? portablePython
+    : (fs.existsSync(venvPython) ? venvPython : "python.exe");
 
   return {
     backendDir,
-    venvPython,
+    venvPython: resolvedPython,
     ttsDir: path.join(backendDir, "Irodori-TTS-Lite"),
   };
 }

@@ -12,6 +12,8 @@ dist/
 
 # Compiled Python bytecode
 *.py[cod]
+python_runtime/
+python_embed.zip
 
 # Log files
 *.log

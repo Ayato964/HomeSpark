@@ -23,14 +23,9 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Setup Embedded Python Backend Environment
-        working-directory: ./lab_sales_spark_backend
+      - name: Setup Portable Standalone Python Runtime
         run: |
-          python -m venv .venv
-          .\.venv\Scripts\python -m pip install --upgrade pip
-          if (Test-Path requirements.txt) {
-            .\.venv\Scripts\pip install -r requirements.txt
-          }
+          powershell -ExecutionPolicy Bypass -File .\scripts\setup_embed_python.ps1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
