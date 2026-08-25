@@ -50,11 +50,13 @@ jobs:
 
       - name: Build Standalone Windows Packages
         working-directory: ./lab_sales_spark_frontend
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if (Test-Path "../lab_sales_spark_backend/.gitignore") {
             Remove-Item "../lab_sales_spark_backend/.gitignore" -Force
           }
-          npx electron-builder --win --publish never
+          npx electron-builder --win --publish always
 
       - name: Upload and Publish Release to GitHub Releases
         uses: softprops/action-gh-release@v2
