@@ -114,5 +114,69 @@ def save_imap_account(uid: str, account_data: dict) -> dict:
     return _get_provider().save_imap_account(uid, account_data)
 
 
+def create_imap_account(uid: str, account_data: dict) -> dict:
+    return _get_provider().save_imap_account(uid, account_data)
+
+
 def delete_imap_account(uid: str, account_id: str) -> bool:
     return _get_provider().delete_imap_account(uid, account_id)
+
+
+# --------------------------------------------------------------------------- #
+# Legacy Compatibility Aliases (People, Notifications, Profiles)
+# --------------------------------------------------------------------------- #
+def get_all_people(uid: str) -> list[dict]:
+    return _get_provider().get_digital_business_cards(uid)
+
+
+def create_full_person(uid: str, person_data: dict) -> dict:
+    return _get_provider().save_digital_business_card(uid, person_data)
+
+
+def delete_person(uid: str, person_id: str) -> bool:
+    return _get_provider().delete_digital_business_card(uid, person_id)
+
+
+def find_person_by_email(uid: str, email: str) -> dict | None:
+    cards = _get_provider().get_digital_business_cards(uid, query=email)
+    for c in cards:
+        if c.get("email") == email:
+            return c
+    return None
+
+
+def get_notifications(uid: str) -> list[dict]:
+    return []
+
+
+def create_notification(uid: str, notif_data: dict) -> dict:
+    return notif_data
+
+
+def mark_notification_as_read(uid: str, notif_id: str) -> bool:
+    return True
+
+
+def delete_notification(uid: str, notif_id: str) -> bool:
+    return True
+
+
+def notification_exists_for_mail(uid: str, mail_id: str) -> bool:
+    return False
+
+
+def get_all_linked_users() -> list[str]:
+    return []
+
+
+def get_notification_by_id(uid: str, notif_id: str) -> dict | None:
+    return None
+
+
+def get_user_profile(uid: str) -> dict | None:
+    return None
+
+
+def upsert_user_profile(uid: str, profile_data: dict) -> dict:
+    return profile_data
+
