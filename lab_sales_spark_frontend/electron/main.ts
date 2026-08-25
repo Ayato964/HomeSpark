@@ -419,7 +419,8 @@ async function ensureBackendServices() {
 
   // 1. Resolve free backend port dynamically
   resolvedBackendPort = await findAvailablePort(8080);
-  console.log(`[Electron] Starting FastAPI backend on dynamically resolved port: ${resolvedBackendPort}`);
+  const resolvedTtsPort = await findAvailablePort(8008);
+  console.log(`[Electron] Starting FastAPI backend on port ${resolvedBackendPort}, TTS on port ${resolvedTtsPort}`);
 
   // 2. Ensure Backend Server (FastAPI)
   updateSplash(`FastAPI バックエンドサーバーを起動中 (${resolvedBackendPort})...`, 45, "データベース＆API準備");
@@ -443,6 +444,7 @@ async function ensureBackendServices() {
               ...userEnv,
               PARENT_ELECTRON_PID: process.pid.toString(),
               PORT: resolvedBackendPort.toString(),
+              TTS_SERVER_URL: `http://127.0.0.1:${resolvedTtsPort}`,
             },
           }
         );
@@ -482,10 +484,10 @@ async function ensureBackendServices() {
     }
   }
 
-  // 3. Ensure Local TTS Engine (port 8008) ONLY IF GPU IS PRESENT
+  // 3. Ensure Local TTS Engine ONLY IF GPU IS PRESENT
   if (hasGpu) {
-    updateSplash("Irodori-TTS 音声合成エンジンを起動中 (8008)...", 85, "CUDA 高速音声推論");
-    const ttsAlive = await checkPortAlive(8008);
+    updateSplash(`Irodori-TTS 音声合成エンジンを起動中 (${resolvedTtsPort})...`, 85, "CUDA 高速音声推論");
+    const ttsAlive = await checkPortAlive(resolvedTtsPort);
     if (!ttsAlive) {
       const ttsScript = path.join(ttsDir, "app_voice.py");
       if (fs.existsSync(venvPython) && fs.existsSync(ttsScript)) {
@@ -496,7 +498,11 @@ async function ensureBackendServices() {
             detached: false,
             shell: false,
             windowsHide: true,
-            env: { ...process.env, PARENT_ELECTRON_PID: process.pid.toString() },
+            env: {
+              ...process.env,
+              PARENT_ELECTRON_PID: process.pid.toString(),
+              PORT: resolvedTtsPort.toString(),
+            },
           });
 
           ttsProc.on("error", (err) => console.warn("[TTS Proc Error]:", err.message));

@@ -92,10 +92,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         chatService.getLlmConfig().catch(() => null),
       ]).then(([mode, llmConfig]) => {
         setStorageMode(mode);
+        let detectedGpu: any = llmConfig?.gpu || { has_gpu: false };
+        if (!detectedGpu.has_gpu && typeof window !== 'undefined') {
+          try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (gl) {
+              const debugInfo = (gl as any).getExtension('WEBGL_debug_renderer_info');
+              if (debugInfo) {
+                const webglGpu = (gl as any).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                if (webglGpu && /nvidia|geforce|rtx|gtx|quadro|radeon/i.test(webglGpu)) {
+                  detectedGpu = { has_gpu: true, gpu_name: webglGpu };
+                }
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+        setGpuInfo(detectedGpu);
         if (llmConfig) {
           setActiveProvider(llmConfig.active_provider);
           setProviderStatus(llmConfig.providers);
-          setGpuInfo(llmConfig.gpu);
           if (llmConfig.providers.gemini?.model_name) setGeminiModel(llmConfig.providers.gemini.model_name);
           if (llmConfig.providers.openai?.model_name) setOpenaiModel(llmConfig.providers.openai.model_name);
           if (llmConfig.providers.custom_vllm?.base_url) setCustomVllmUrl(llmConfig.providers.custom_vllm.base_url);
@@ -1030,7 +1048,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       HomeSpark GeMo (デスクトップ版)
                     </span>
                     <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
-                      現在のバージョン: <strong>v{currentVersion}</strong>
+                      現在のバージョン: <strong>v3.1.14</strong>
                     </span>
                   </div>
 

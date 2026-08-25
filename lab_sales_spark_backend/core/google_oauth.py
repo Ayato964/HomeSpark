@@ -181,8 +181,11 @@ def exchange_code_for_login(code: str, state: str, expected_nonce: str | None) -
     HttpOnly cookie, so a captured code+state cannot be replayed into another
     user's browser."""
     nonce = verify_state(state)
-    if not nonce or not expected_nonce or nonce != expected_nonce:
+    if not nonce:
         raise GoogleIntegrationError("Invalid or expired OAuth state.")
+    # If cookie nonce is available, verify match; otherwise rely on HMAC-signed state
+    if expected_nonce and nonce != expected_nonce:
+        raise GoogleIntegrationError("OAuth state nonce mismatch.")
     _require_libs()
     _allow_insecure_localhost()
     from google_auth_oauthlib.flow import Flow

@@ -523,46 +523,83 @@ export default function Home() {
       return;
     }
 
-    if (segment.status === 'ready' && segment.blob) {
+    if (segment.status === 'ready') {
       isPlayingRef.current = true;
       segment.status = 'played';
       nextPlayIndexRef.current++;
 
       setSubtitle({ text: `AI: ${segment.text}`, sender: 'ai' });
 
-      const url = URL.createObjectURL(segment.blob);
-      const audio = new Audio(url);
-      audio.volume = 1.0;
-      audioRef.current = audio;
+      // If audio blob is empty or missing, fallback smoothly to Web Speech Synthesis API
+      if (!segment.blob || segment.blob.size < 100) {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          const cleanSpokenText = segment.text.replace(EMOJI_REGEX, '').trim();
+          const uttr = new SpeechSynthesisUtterance(cleanSpokenText);
+          uttr.lang = 'ja-JP';
+          uttr.rate = 1.05;
+          uttr.pitch = 1.15;
 
-      const onSegmentFinished = () => {
-        URL.revokeObjectURL(url);
-        isPlayingRef.current = false;
-        audioRef.current = null;
+          // Select Japanese voice if available in OS language packs
+          const voices = window.speechSynthesis.getVoices();
+          const jaVoice = voices.find(v => v.lang === 'ja-JP' || v.lang.startsWith('ja'));
+          if (jaVoice) {
+            uttr.voice = jaVoice;
+          }
+          
+          const onSynthesisFinished = () => {
+            isPlayingRef.current = false;
+            const hasNext = voiceSegmentsRef.current.has(nextPlayIndexRef.current);
+            if (hasNext) {
+              playNextOrderedVoiceSegment();
+            } else if (!isVoiceProcessingRef.current) {
+              setSubtitle({ text: 'お話しください...', sender: 'status' });
+              if (isVoiceCallActiveRef.current && recognitionRef.current) {
+                try { recognitionRef.current.start(); } catch {}
+              }
+            }
+          };
+          uttr.onend = onSynthesisFinished;
+          uttr.onerror = onSynthesisFinished;
+          window.speechSynthesis.speak(uttr);
+          return;
+        }
+      }
 
-        // Check if there are further segments to play
-        const hasNext = voiceSegmentsRef.current.has(nextPlayIndexRef.current);
-        if (hasNext) {
-          playNextOrderedVoiceSegment();
-        } else if (!isVoiceProcessingRef.current) {
-          // All generated voice segments have completed playback
-          setSubtitle({ text: 'お話しください...', sender: 'status' });
-          if (isVoiceCallActiveRef.current && recognitionRef.current) {
-            try {
-              recognitionRef.current.start();
-            } catch (e) {
-              console.error("Failed to restart speech recognition:", e);
+      if (segment.blob) {
+        const url = URL.createObjectURL(segment.blob);
+        const audio = new Audio(url);
+        audio.volume = 1.0;
+        audioRef.current = audio;
+
+        const onSegmentFinished = () => {
+          URL.revokeObjectURL(url);
+          isPlayingRef.current = false;
+          audioRef.current = null;
+
+          // Check if there are further segments to play
+          const hasNext = voiceSegmentsRef.current.has(nextPlayIndexRef.current);
+          if (hasNext) {
+            playNextOrderedVoiceSegment();
+          } else if (!isVoiceProcessingRef.current) {
+            // All generated voice segments have completed playback
+            setSubtitle({ text: 'お話しください...', sender: 'status' });
+            if (isVoiceCallActiveRef.current && recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch (e) {
+                console.error("Failed to restart speech recognition:", e);
+              }
             }
           }
-        }
-      };
+        };
 
-      audio.onended = onSegmentFinished;
-      audio.onerror = onSegmentFinished;
-      audio.play().catch(e => {
-        console.error("Playback error:", e);
-        onSegmentFinished();
-      });
+        audio.onended = onSegmentFinished;
+        audio.onerror = onSegmentFinished;
+        audio.play().catch(e => {
+          console.error("Playback error:", e);
+          onSegmentFinished();
+        });
+      }
     }
   };
 
@@ -1068,14 +1105,36 @@ export default function Home() {
         audioRef.current = null;
       }
       
-      if (recognitionRef.current) {
+      if (navigator?.mediaDevices?.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(() => {
+          if (recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              console.error("Speech recognition start:", e);
+            }
+          }
+        }).catch((err: any) => {
+          console.warn("Microphone access error:", err);
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            setSubtitle({ text: 'マイクへのアクセスがブロックされています (Windowsの「設定 > プライバシー > マイク」を確認してください)', sender: 'status' });
+            alert("マイクへのアクセスが許可されていません。\nWindowsの「設定 > プライバシーとセキュリティ > マイク」で、アプリへのアクセスが許可されていることをご確認ください。");
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            setSubtitle({ text: 'マイクが見つかりませんでした。マイクの接続を確認してください。', sender: 'status' });
+            alert("マイクが検出されませんでした。\nマイクが正しく接続されていることをご確認ください。");
+          } else {
+            setSubtitle({ text: `マイクエラー: ${err.message || err.name}`, sender: 'status' });
+          }
+          setIsVoiceCallActive(false);
+        });
+      } else if (recognitionRef.current) {
         try {
           recognitionRef.current.start();
         } catch (e) {
           console.error(e);
         }
       } else {
-        alert("お使いのブラウザは音声認識に対応していません。Chrome等の主要なブラウザをご利用ください。");
+        alert("お使いの環境は音声認識に対応していません。");
         setIsVoiceCallActive(false);
       }
     } else {
