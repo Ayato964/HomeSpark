@@ -54,7 +54,8 @@ export function login(): void {
 /** Instant login for local/offline usage or while Google OAuth is unverified. */
 export function loginQuick(
   email: string = "ayato.yofukashi@gmail.com",
-  name: string = "Ayato (Local User)"
+  name: string = "Ayato (Local User)",
+  autoReload: boolean = true
 ): void {
   if (typeof window === 'undefined') return;
   const claims = {
@@ -69,7 +70,9 @@ export function loginQuick(
   const b64url = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const token = `${b64url}.local_dev_session`;
   window.localStorage.setItem(STORAGE_KEY, token);
-  window.location.reload();
+  if (autoReload) {
+    window.location.reload();
+  }
 }
 
 export function logout(): void {

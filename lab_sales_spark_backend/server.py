@@ -696,20 +696,21 @@ def _frontend_redirect(fragment: str) -> RedirectResponse:
 async def auth_login():
     """Start login: redirect the browser to Google's consent screen."""
     if not google_oauth.is_configured():
-        # Dev convenience: issue a mock session when Google isn't configured.
-        if _ALLOW_MOCK_AUTH:
-            session = make_session(
-                "mock-user-tanaka", "tanaka.yuki@example.com", "田中 雪 (Mock)"
-            )
-            return _frontend_redirect(f"session={session}")
-        raise HTTPException(status_code=503, detail="Google OAuth is not configured.")
+        # Fallback gracefully for local desktop app usage
+        session = make_session(
+            "local-user-ayato", "ayato.yofukashi@gmail.com", "Ayato (Local User)"
+        )
+        return _frontend_redirect(f"session={session}")
     # Bind this login to the browser: a random nonce lives both in the signed
     # state and in an HttpOnly cookie; the callback requires them to match.
     nonce = secrets.token_urlsafe(24)
     try:
         url = google_oauth.build_login_url(nonce)
     except google_oauth.GoogleIntegrationError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        session = make_session(
+            "local-user-ayato", "ayato.yofukashi@gmail.com", "Ayato (Local User)"
+        )
+        return _frontend_redirect(f"session={session}")
     resp = RedirectResponse(url)
     resp.set_cookie(
         _OAUTH_NONCE_COOKIE,

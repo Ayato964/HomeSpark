@@ -14,7 +14,7 @@ import { OnboardingModal } from "../components/OnboardingModal";
 import { isDesktopApp } from "../utils/platform";
 import { UserProfile } from "../types/chat";
 import { ChatService } from "../services/ChatService";
-import { getToken, loginQuick } from "../services/auth";
+import { getToken, loginQuick, getUser } from "../services/auth";
 import { sendSubtitleToOverlay } from "../utils/electron";
 
 
@@ -1979,12 +1979,16 @@ export default function Home() {
       <OnboardingModal
         isOpen={isOnboardingOpen}
         onLoginGoogle={login}
-        onLoginQuick={loginQuick}
+        onLoginQuick={() => {
+          loginQuick(undefined, undefined, false);
+        }}
         onComplete={(voiceEnabled) => {
           setIsVoiceCallSupported(voiceEnabled);
           localStorage.setItem('homespark_gemo_onboarding_done', 'true');
           localStorage.setItem('homespark_voice_supported', voiceEnabled ? 'true' : 'false');
           setIsOnboardingOpen(false);
+          // Reload page to re-initialize custom hook with newly saved session token
+          window.location.reload();
         }}
       />
 
