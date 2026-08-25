@@ -36,13 +36,14 @@ let tray: Tray | null = null;
 let isQuitting = false;
 let overlayHideTimer: NodeJS.Timeout | null = null;
 let internalServer: http.Server | null = null;
+let dynamicFrontendUrl: string = "http://127.0.0.1:3000";
+
+let lastSplashState = { log: "システム初期化中...", percent: 20, subLog: "高速エンジンを準備しています" };
 
 // Child processes for local backend and TTS
 const spawnedProcesses: ChildProcess[] = [];
 
 const isDev = process.env.NODE_ENV !== "production" || !app.isPackaged;
-const FRONTEND_PORT = 3000;
-const FRONTEND_URL = `http://127.0.0.1:${FRONTEND_PORT}`;
 
 // Configure autoUpdater
 autoUpdater.autoDownload = true;
@@ -50,6 +51,7 @@ autoUpdater.autoInstallOnAppQuit = true;
 
 // Helper to update splash screen progress and log
 function updateSplash(log: string, percent: number, subLog?: string) {
+  lastSplashState = { log, percent, subLog: subLog || "" };
   if (splashWindow && !splashWindow.isDestroyed()) {
     splashWindow.webContents.send("splash-progress", { log, percent, subLog });
   }
@@ -93,11 +95,11 @@ function getStaticOutDir(): string {
   return path.join(app.getAppPath(), "out");
 }
 
-// Start embedded HTTP server inside Electron main process (0ms startup, ZERO external process needed)
-function startInternalHttpServer(): Promise<void> {
+// Start embedded HTTP server with DYNAMIC PORT ASSIGNMENT (ZERO PORT CONFLICTS)
+function startInternalHttpServer(): Promise<string> {
   return new Promise((resolve) => {
     if (internalServer) {
-      resolve();
+      resolve(dynamicFrontendUrl);
       return;
     }
 
@@ -139,19 +141,18 @@ function startInternalHttpServer(): Promise<void> {
       }
     });
 
-    internalServer.listen(FRONTEND_PORT, "127.0.0.1", () => {
-      console.log(`[Electron] Internal Frontend Server running at ${FRONTEND_URL}`);
-      resolve();
+    // Listen on dynamic port 0 (OS automatically assigns a free port)
+    internalServer.listen(0, "127.0.0.1", () => {
+      const addr = internalServer?.address();
+      const port = typeof addr === "object" && addr ? addr.port : 3000;
+      dynamicFrontendUrl = `http://127.0.0.1:${port}`;
+      console.log(`[Electron] Internal Frontend Server dynamically assigned port at ${dynamicFrontendUrl}`);
+      resolve(dynamicFrontendUrl);
     });
 
     internalServer.on("error", (e: any) => {
-      if (e.code === "EADDRINUSE") {
-        console.log(`[Electron] Port ${FRONTEND_PORT} already in use (dev server or previous instance).`);
-        resolve();
-      } else {
-        console.error("[Internal Server Port Error]:", e);
-        resolve();
-      }
+      console.error("[Internal Server Port Error]:", e);
+      resolve("http://127.0.0.1:3000");
     });
   });
 }
@@ -261,7 +262,6 @@ function getSplashHtmlUrl(): string {
     }
   }
 
-  // Fallback inline splash HTML
   const fallbackHtml = `<!DOCTYPE html><html><body style="background:#0d0f17;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;border-radius:16px;border:1px solid rgba(255,255,255,0.1);"><h2 style="margin-bottom:8px;">HomeSpark GeMo</h2><p id="log-text" style="font-size:12px;color:#94a3b8;">起動中...</p></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(fallbackHtml)}`;
 }
@@ -417,18 +417,18 @@ async function createWindow() {
       if (splashWindow && !splashWindow.isDestroyed()) {
         splashWindow.close();
       }
-    }, 400);
+    }, 300);
   };
 
-  mainWindow.loadURL(FRONTEND_URL).then(() => {
+  mainWindow.loadURL(dynamicFrontendUrl).then(() => {
     showAndCloseSplash();
   }).catch((err) => {
     console.warn("[Electron] Initial loadURL failed, retrying:", err);
     setTimeout(() => {
-      mainWindow?.loadURL(FRONTEND_URL).finally(() => {
+      mainWindow?.loadURL(dynamicFrontendUrl).finally(() => {
         showAndCloseSplash();
       });
-    }, 800);
+    }, 600);
   });
 
   mainWindow.on("maximize", () => {
@@ -609,6 +609,12 @@ function createTray() {
 }
 
 function setupIPC() {
+  ipcMain.on("splash-ready", () => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.webContents.send("splash-progress", lastSplashState);
+    }
+  });
+
   ipcMain.on("window-minimize", () => {
     mainWindow?.minimize();
   });

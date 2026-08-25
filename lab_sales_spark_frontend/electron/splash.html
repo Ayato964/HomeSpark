@@ -21,24 +21,24 @@
       align-items: center;
       justifyContent: center;
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 20px;
     }
     .glow-sphere {
       position: absolute;
-      width: 220px;
-      height: 220px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, rgba(99, 102, 241, 0) 70%);
+      width: 240px;
+      height: 240px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.4) 0%, rgba(99, 102, 241, 0) 70%);
       top: 25%;
       left: 50%;
       transform: translate(-50%, -50%);
-      filter: blur(25px);
+      filter: blur(30px);
       animation: pulseGlow 3s ease-in-out infinite alternate;
       pointer-events: none;
     }
     @keyframes pulseGlow {
       0% { transform: translate(-50%, -50%) scale(0.85); opacity: 0.5; }
-      100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.9; }
+      100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.95; }
     }
     .logo-container {
       position: relative;
@@ -51,7 +51,7 @@
       justifyContent: center;
       font-size: 34px;
       box-shadow: 0 12px 32px rgba(99, 102, 241, 0.45);
-      margin-bottom: 20px;
+      margin-bottom: 18px;
       animation: floatLogo 3s ease-in-out infinite alternate;
     }
     @keyframes floatLogo {
@@ -70,7 +70,7 @@
     .catchphrase {
       font-size: 11.5px;
       color: #94a3b8;
-      margin-bottom: 28px;
+      margin-bottom: 26px;
       letter-spacing: 0.02em;
     }
     .progress-box {
@@ -89,10 +89,10 @@
     }
     .progress-bar-fill {
       height: 100%;
-      width: 15%;
+      width: 10%;
       background: linear-gradient(90deg, #6366f1, #2dd4bf);
       border-radius: 3px;
-      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .log-text {
       font-size: 11px;
@@ -125,28 +125,48 @@
     <div class="progress-bar-bg">
       <div id="progress-fill" class="progress-bar-fill"></div>
     </div>
-    <div id="log-text" class="log-text">システム環境を診断中...</div>
-    <div id="sub-log" class="sub-log">初期化プロセスを実行しています</div>
+    <div id="log-text" class="log-text">システム初期化中...</div>
+    <div id="sub-log" class="sub-log">高速エンジンを準備しています</div>
   </div>
 
   <script>
-    const { ipcRenderer } = require("electron");
-
+    let currentPercent = 10;
     const progressFill = document.getElementById("progress-fill");
     const logText = document.getElementById("log-text");
     const subLog = document.getElementById("sub-log");
 
-    ipcRenderer.on("splash-progress", (_event, data) => {
-      if (data.percent !== undefined) {
-        progressFill.style.width = data.percent + "%";
+    // Autonomous smooth progress animation
+    const timer = setInterval(() => {
+      if (currentPercent < 85) {
+        currentPercent += Math.floor(Math.random() * 4) + 1;
+        progressFill.style.width = currentPercent + "%";
       }
-      if (data.log) {
-        logText.textContent = data.log;
-      }
-      if (data.subLog) {
-        subLog.textContent = data.subLog;
-      }
-    });
+    }, 180);
+
+    try {
+      const { ipcRenderer } = require("electron");
+
+      // Notify main process that splash is ready to receive logs
+      ipcRenderer.send("splash-ready");
+
+      ipcRenderer.on("splash-progress", (_event, data) => {
+        if (data.percent !== undefined) {
+          currentPercent = Math.max(currentPercent, data.percent);
+          progressFill.style.width = currentPercent + "%";
+          if (data.percent >= 100) {
+            clearInterval(timer);
+          }
+        }
+        if (data.log) {
+          logText.textContent = data.log;
+        }
+        if (data.subLog) {
+          subLog.textContent = data.subLog;
+        }
+      });
+    } catch {
+      // Running standalone
+    }
   </script>
 </body>
 </html>
