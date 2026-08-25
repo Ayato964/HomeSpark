@@ -1,9 +1,13 @@
 name: Release Desktop App
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build-and-release:
