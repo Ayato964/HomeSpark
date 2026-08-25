@@ -12,7 +12,7 @@ import {
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
-import { spawn, ChildProcess } from "child_process";
+import { spawn, spawnSync, execSync, ChildProcess } from "child_process";
 import * as http from "http";
 
 let mainWindow: BrowserWindow | null = null;
@@ -153,18 +153,32 @@ async function ensureAllServices() {
 }
 
 function cleanupProcesses() {
+  // 1. Kill tracked spawned processes and their complete process trees
   for (const proc of spawnedProcesses) {
     try {
       if (proc.pid) {
         if (process.platform === "win32") {
-          spawn("taskkill", ["/pid", proc.pid.toString(), "/f", "/t"], { windowsHide: true });
+          spawnSync("taskkill", ["/pid", proc.pid.toString(), "/f", "/t"], { windowsHide: true });
         } else {
           proc.kill("SIGTERM");
         }
       }
     } catch {
-      // ignore cleanup errors
+      // ignore
     }
+  }
+
+  // 2. Extra safety on Windows: Kill any lingering processes on ports 8080, 8008, 3000
+  if (process.platform === "win32") {
+    try {
+      execSync('for /f "tokens=5" %a in (\'netstat -aon ^| findstr :8080\') do taskkill /f /pid %a', { stdio: "ignore", windowsHide: true });
+    } catch {}
+    try {
+      execSync('for /f "tokens=5" %a in (\'netstat -aon ^| findstr :8008\') do taskkill /f /pid %a', { stdio: "ignore", windowsHide: true });
+    } catch {}
+    try {
+      execSync('for /f "tokens=5" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a', { stdio: "ignore", windowsHide: true });
+    } catch {}
   }
 }
 
