@@ -1,6 +1,6 @@
 {
   "name": "homespark-gemo",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -15,6 +15,7 @@
   "build": {
     "appId": "com.homespark.gemo",
     "productName": "HomeSpark GeMo",
+    "artifactName": "HomeSpark-GeMo-Setup-${version}.${ext}",
     "directories": {
       "output": "dist-package"
     },
@@ -55,13 +56,14 @@
       "shortcutName": "HomeSpark GeMo",
       "uninstallDisplayName": "HomeSpark GeMo",
       "deleteAppDataOnUninstall": false,
-      "language": "1041"
+      "language": "1041",
+      "artifactName": "HomeSpark-GeMo-Setup-${version}.${ext}"
     },
     "win": {
       "target": [
-        "nsis",
-        "portable"
-      ]
+        "nsis"
+      ],
+      "artifactName": "HomeSpark-GeMo-Setup-${version}.${ext}"
     }
   },
   "dependencies": {
