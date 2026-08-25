@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>HomeSpark GeMo - 起動中</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      width: 100vw;
+      height: 100vh;
+      background: radial-gradient(circle at 50% 30%, #171b26 0%, #0b0d13 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #f1f5f9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justifyContent: center;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+    }
+    .glow-sphere {
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, rgba(99, 102, 241, 0) 70%);
+      top: 25%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      filter: blur(25px);
+      animation: pulseGlow 3s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+    @keyframes pulseGlow {
+      0% { transform: translate(-50%, -50%) scale(0.85); opacity: 0.5; }
+      100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.9; }
+    }
+    .logo-container {
+      position: relative;
+      width: 72px;
+      height: 72px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      display: flex;
+      align-items: center;
+      justifyContent: center;
+      font-size: 34px;
+      box-shadow: 0 12px 32px rgba(99, 102, 241, 0.45);
+      margin-bottom: 20px;
+      animation: floatLogo 3s ease-in-out infinite alternate;
+    }
+    @keyframes floatLogo {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-6px); }
+    }
+    .title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #ffffff 0%, #c7d2fe 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+    }
+    .catchphrase {
+      font-size: 11.5px;
+      color: #94a3b8;
+      margin-bottom: 28px;
+      letter-spacing: 0.02em;
+    }
+    .progress-box {
+      width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      width: 15%;
+      background: linear-gradient(90deg, #6366f1, #2dd4bf);
+      border-radius: 3px;
+      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .log-text {
+      font-size: 11px;
+      color: #cbd5e1;
+      text-align: center;
+      font-family: "Consolas", "Courier New", monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-height: 16px;
+    }
+    .sub-log {
+      font-size: 9.5px;
+      color: #64748b;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="glow-sphere"></div>
+
+  <div class="logo-container">
+    ✨
+  </div>
+
+  <div class="title">HomeSpark GeMo</div>
+  <div class="catchphrase">あなたのデスクに、最高の知性と萌えを。</div>
+
+  <div class="progress-box">
+    <div class="progress-bar-bg">
+      <div id="progress-fill" class="progress-bar-fill"></div>
+    </div>
+    <div id="log-text" class="log-text">システム環境を診断中...</div>
+    <div id="sub-log" class="sub-log">初期化プロセスを実行しています</div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require("electron");
+
+    const progressFill = document.getElementById("progress-fill");
+    const logText = document.getElementById("log-text");
+    const subLog = document.getElementById("sub-log");
+
+    ipcRenderer.on("splash-progress", (_event, data) => {
+      if (data.percent !== undefined) {
+        progressFill.style.width = data.percent + "%";
+      }
+      if (data.log) {
+        logText.textContent = data.log;
+      }
+      if (data.subLog) {
+        subLog.textContent = data.subLog;
+      }
+    });
+  </script>
+</body>
+</html>

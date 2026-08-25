@@ -17,7 +17,7 @@ import { spawn, spawnSync, ChildProcess } from "child_process";
 import * as http from "http";
 import { autoUpdater } from "electron-updater";
 
-// Crash resilience: Catch any unexpected exceptions to prevent app freeze
+// Crash resilience: Catch any unexpected exceptions
 process.on("uncaughtException", (error) => {
   console.error("[Electron Main] Uncaught Exception:", error);
 });
@@ -26,21 +26,12 @@ process.on("unhandledRejection", (reason) => {
   console.error("[Electron Main] Unhandled Rejection:", reason);
 });
 
+let splashWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 let overlayHideTimer: NodeJS.Timeout | null = null;
-
-// Prevent app from completely freezing on uncaught exceptions
-process.on("uncaughtException", (error) => {
-  console.error("[Electron] Uncaught Exception:", error);
-});
-
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("[Electron] Unhandled Rejection at:", promise, "reason:", reason);
-});
-
 
 // Child processes for local backend, TTS, and frontend
 const spawnedProcesses: ChildProcess[] = [];
@@ -51,6 +42,13 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 // Configure autoUpdater
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+
+// Helper to update splash screen progress and log
+function updateSplash(log: string, percent: number, subLog?: string) {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.webContents.send("splash-progress", { log, percent, subLog });
+  }
+}
 
 // Helper to check if a local HTTP service is alive
 function checkPortAlive(port: number): Promise<boolean> {
@@ -82,7 +80,7 @@ async function waitForPort(port: number, timeoutMs = 35000): Promise<boolean> {
 // Dynamically locate the workspace root folder for development
 function findProjectRootDir(): string {
   const candidates = [
-    path.resolve(__dirname, "../../"), // electron/dist/main.js -> root
+    path.resolve(__dirname, "../../"),
     path.resolve(process.resourcesPath, "../../../../"),
     path.resolve(process.resourcesPath, "../../../"),
     path.resolve(app.getAppPath(), "../../../../"),
@@ -95,7 +93,6 @@ function findProjectRootDir(): string {
     const backendPy = path.join(candidate, "lab_sales_spark_backend", "server.py");
     const venvPy = path.join(candidate, "lab_sales_spark_backend", ".venv", "Scripts", "python.exe");
     if (fs.existsSync(backendPy) && fs.existsSync(venvPy)) {
-      console.log("[Electron] Found valid development project root:", candidate);
       return candidate;
     }
   }
@@ -103,14 +100,13 @@ function findProjectRootDir(): string {
   return "G:\\My_Project\\spark";
 }
 
-// Resolve backend directories and Python executable with ZERO shell dependency
+// Resolve backend directories and Python executable
 function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: string; frontendDir: string } {
   // 1. Check embedded production resources (All-in-One Standalone Package)
   if (process.resourcesPath) {
     const embeddedBackend = path.join(process.resourcesPath, "app_backend");
     const embeddedPython = path.join(embeddedBackend, ".venv", "Scripts", "python.exe");
     if (fs.existsSync(path.join(embeddedBackend, "server.py")) && fs.existsSync(embeddedPython)) {
-      console.log("[Electron] Using standalone embedded backend at:", embeddedBackend);
       return {
         backendDir: embeddedBackend,
         venvPython: embeddedPython,
@@ -134,15 +130,83 @@ function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: s
   };
 }
 
-// Auto-start backend, TTS, and frontend services (Direct Binary Execution, shell: false)
+import { promisify } from "util";
+const execAsync = promisify(require("child_process").exec);
+
+// Check if NVIDIA / dedicated GPU is present asynchronously
+async function checkGpuPresent(venvPython: string): Promise<boolean> {
+  if (process.platform === "win32") {
+    try {
+      const { stdout } = await execAsync("powershell -NoProfile -Command \"Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name\"", { timeout: 4000 });
+      const out = (stdout || "").toLowerCase();
+      if (out.includes("nvidia") || out.includes("geforce") || out.includes("rtx") || out.includes("gtx") || out.includes("quadro") || out.includes("radeon")) {
+        return true;
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  // Check via python torch.cuda if available
+  if (fs.existsSync(venvPython)) {
+    try {
+      await execAsync(`"${venvPython}" -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 4000 });
+      return true; // Exited with 0
+    } catch {
+      // Exited with 1 or timeout
+    }
+  }
+
+  return false;
+}
+
+// Create animated splash window
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 480,
+    height: 360,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    center: true,
+    show: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  const splashHtmlPath = isDev
+    ? path.join(__dirname, "../electron/splash.html")
+    : path.join(__dirname, "splash.html");
+
+  splashWindow.loadFile(splashHtmlPath).catch(() => {
+    splashWindow?.loadFile(path.join(__dirname, "splash.html"));
+  });
+
+  splashWindow.once("ready-to-show", () => {
+    splashWindow?.show();
+  });
+
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+}
+
+// Auto-start backend, TTS, and frontend services with GPU diagnosis
 async function ensureAllServices() {
   const { backendDir, venvPython, ttsDir, frontendDir } = getBackendConfig();
 
+  updateSplash("🔍 ハードウェア環境（GPU / CUDA）を診断中...", 20, "システム診断");
+  const hasGpu = await checkGpuPresent(venvPython);
+  console.log("[Electron] GPU Presence Diagnosis:", hasGpu);
+
   // 1. Ensure Backend Server (FastAPI on port 8080)
+  updateSplash("🚀 FastAPI バックエンドサーバーを起動中 (8080)...", 45, "データベース＆API準備");
   const backendAlive = await checkPortAlive(8080);
   if (!backendAlive) {
     if (fs.existsSync(venvPython)) {
-      console.log("[Electron] Auto-starting FastAPI backend directly without cmd.exe...");
       try {
         const backendProc = spawn(
           venvPython,
@@ -151,7 +215,7 @@ async function ensureAllServices() {
             cwd: backendDir,
             stdio: "ignore",
             detached: false,
-            shell: false, // ZERO cmd.exe dependency
+            shell: false,
             windowsHide: true,
           }
         );
@@ -160,44 +224,42 @@ async function ensureAllServices() {
       } catch (e) {
         console.error("[Electron] Failed to spawn backend:", e);
       }
-    } else {
-      console.warn("[Electron] Python executable not found at:", venvPython);
     }
-  } else {
-    console.log("[Electron] Backend server already active on port 8080.");
   }
 
-  // 2. Ensure Local TTS Engine (port 8008)
-  const ttsAlive = await checkPortAlive(8008);
-  if (!ttsAlive) {
-    const ttsScript = path.join(ttsDir, "app_voice.py");
-    if (fs.existsSync(venvPython) && fs.existsSync(ttsScript)) {
-      console.log("[Electron] Auto-starting local TTS engine directly without cmd.exe...");
-      try {
-        const ttsProc = spawn(venvPython, ["app_voice.py"], {
-          cwd: ttsDir,
-          stdio: "ignore",
-          detached: false,
-          shell: false, // ZERO cmd.exe dependency
-          windowsHide: true,
-        });
-        ttsProc.on("error", (err) => console.warn("[TTS Proc Error]:", err.message));
-        spawnedProcesses.push(ttsProc);
-      } catch (e) {
-        console.error("[Electron] Failed to spawn TTS:", e);
+  // 2. Ensure Local TTS Engine (port 8008) ONLY IF GPU IS PRESENT
+  if (hasGpu) {
+    updateSplash("🎙️ Irodori-TTS 音声合成エンジンを起動中 (8008)...", 70, "CUDA 高速音声推論");
+    const ttsAlive = await checkPortAlive(8008);
+    if (!ttsAlive) {
+      const ttsScript = path.join(ttsDir, "app_voice.py");
+      if (fs.existsSync(venvPython) && fs.existsSync(ttsScript)) {
+        try {
+          const ttsProc = spawn(venvPython, ["app_voice.py"], {
+            cwd: ttsDir,
+            stdio: "ignore",
+            detached: false,
+            shell: false,
+            windowsHide: true,
+          });
+          ttsProc.on("error", (err) => console.warn("[TTS Proc Error]:", err.message));
+          spawnedProcesses.push(ttsProc);
+        } catch (e) {
+          console.error("[Electron] Failed to spawn TTS:", e);
+        }
       }
     }
   } else {
-    console.log("[Electron] TTS engine already active on port 8008.");
+    updateSplash("⚡ GPU非搭載環境: 音声合成エンジンの起動をスキップしました", 75, "軽量テキストチャットモード");
   }
 
   // 3. Ensure Frontend Server (port 3000) for development mode
   if (isDev) {
+    updateSplash("🖥️ フロントエンド UI サーバーを起動中 (3000)...", 85, "Next.js");
     const frontendAlive = await checkPortAlive(3000);
     if (!frontendAlive) {
-      console.log("[Electron] Development: Next.js dev server starting...");
       try {
-        const nodeExe = process.execPath; // Use electron/node binary directly
+        const nodeExe = process.execPath;
         const nextCli = path.join(frontendDir, "node_modules", "next", "dist", "bin", "next");
         if (fs.existsSync(nextCli)) {
           const frontendProc = spawn(nodeExe, [nextCli, "start", "-p", "3000"], {
@@ -216,6 +278,8 @@ async function ensureAllServices() {
       }
     }
   }
+
+  updateSplash("✨ 起動準備完了！HomeSpark GeMo を起動します...", 95);
 }
 
 function cleanupProcesses() {
@@ -262,6 +326,7 @@ async function createWindow() {
     frame: false,
     titleBarStyle: "hidden",
     backgroundColor: "#0d0f17",
+    show: false, // Show after splash finish
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -274,7 +339,16 @@ async function createWindow() {
   await waitForPort(3000, 25000);
 
   const loadWithRetry = (retries = 8) => {
-    mainWindow?.loadURL(FRONTEND_URL).catch((err) => {
+    mainWindow?.loadURL(FRONTEND_URL).then(() => {
+      updateSplash("🚀 準備完了！", 100);
+      setTimeout(() => {
+        mainWindow?.show();
+        mainWindow?.focus();
+        if (splashWindow && !splashWindow.isDestroyed()) {
+          splashWindow.close();
+        }
+      }, 500);
+    }).catch((err) => {
       console.warn(`[Electron] loadURL failed (${retries} retries left):`, err);
       if (retries > 0) {
         setTimeout(() => loadWithRetry(retries - 1), 1000);
@@ -542,6 +616,7 @@ function setupIPC() {
 
 // App lifecycle
 app.whenReady().then(async () => {
+  createSplashWindow();
   setupIPC();
   setupAutoUpdater();
   createTray();
