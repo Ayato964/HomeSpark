@@ -80,6 +80,41 @@ from core.store import (
 # Local-dev login when Google OAuth isn't configured yet.
 _ALLOW_MOCK_AUTH = os.getenv("ALLOW_MOCK_AUTH", "").lower() in ("1", "true", "yes")
 
+# Self-terminating dead-man switch if parent Electron process is killed
+def _init_parent_watchdog():
+    parent_pid_str = os.getenv("PARENT_ELECTRON_PID")
+    if not parent_pid_str or not parent_pid_str.isdigit():
+        return
+    parent_pid = int(parent_pid_str)
+    if parent_pid <= 0:
+        return
+
+    import threading, time
+    def _watch():
+        while True:
+            time.sleep(2)
+            try:
+                # Check process existence via Windows ctypes / OpenProcess
+                import ctypes
+                PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                SYNCHRONIZE = 0x00100000
+                handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, False, parent_pid)
+                if not handle:
+                    os._exit(0)
+                else:
+                    # WAIT_OBJECT_0 = 0 means process has exited
+                    wait_res = ctypes.windll.kernel32.WaitForSingleObject(handle, 0)
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                    if wait_res == 0:
+                        os._exit(0)
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_watch, daemon=True)
+    t.start()
+
+_init_parent_watchdog()
+
 app = FastAPI(title="Sales Spark Backend API")
 
 # Enable CORS for frontend integration

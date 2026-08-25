@@ -188,7 +188,8 @@ function findProjectRootDir(): string {
   for (const candidate of candidates) {
     const backendPy = path.join(candidate, "lab_sales_spark_backend", "server.py");
     const venvPy = path.join(candidate, "lab_sales_spark_backend", ".venv", "Scripts", "python.exe");
-    if (fs.existsSync(backendPy) && fs.existsSync(venvPy)) {
+    const portablePy = path.join(candidate, "lab_sales_spark_backend", "python_runtime", "python.exe");
+    if (fs.existsSync(backendPy) && (fs.existsSync(venvPy) || fs.existsSync(portablePy))) {
       return candidate;
     }
   }
@@ -249,7 +250,7 @@ async function checkGpuPresent(venvPython: string): Promise<boolean> {
 
   if (fs.existsSync(venvPython)) {
     try {
-      await execAsync(`"${venvPython}" -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 2500 });
+      await execAsync(`"${venvPython}" -s -E -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 2500 });
       return true;
     } catch {
       // fallback
@@ -307,7 +308,7 @@ function createSplashWindow() {
   });
 }
 
-// Auto-start backend and TTS services with GPU diagnosis
+// Auto-start backend and TTS services with crash monitoring & isolation (-s -E)
 async function ensureBackendServices() {
   const { backendDir, venvPython, ttsDir } = getBackendConfig();
 
@@ -321,21 +322,40 @@ async function ensureBackendServices() {
   if (!backendAlive) {
     if (fs.existsSync(venvPython)) {
       try {
+        // Use -s -E to isolate Python from user's global PYTHONPATH and environment pollution
         const backendProc = spawn(
           venvPython,
-          ["-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8080"],
+          ["-s", "-E", "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8080"],
           {
             cwd: backendDir,
-            stdio: "ignore",
+            stdio: "pipe",
             detached: false,
             shell: false,
             windowsHide: true,
+            env: { ...process.env, PARENT_ELECTRON_PID: process.pid.toString() },
           }
         );
-        backendProc.on("error", (err) => console.warn("[Backend Proc Error]:", err.message));
+
+        backendProc.stderr?.on("data", (d) => {
+          console.log("[FastAPI Output]:", d.toString().trim());
+        });
+
+        backendProc.on("error", (err) => {
+          console.warn("[Backend Proc Error]:", err.message);
+          updateSplash(`⚠️ バックエンド起動失敗: ${err.message}`, 80);
+        });
+
+        backendProc.on("exit", (code) => {
+          console.warn(`[Backend Exited]: code=${code}`);
+          if (code !== 0 && !isQuitting) {
+            updateSplash(`⚠️ バックエンドが異常終了しました (code: ${code})`, 80);
+          }
+        });
+
         spawnedProcesses.push(backendProc);
-      } catch (e) {
+      } catch (e: any) {
         console.error("[Electron] Failed to spawn backend:", e);
+        updateSplash(`⚠️ バックエンド起動例外: ${e?.message || e}`, 80);
       }
     }
   }
@@ -348,13 +368,15 @@ async function ensureBackendServices() {
       const ttsScript = path.join(ttsDir, "app_voice.py");
       if (fs.existsSync(venvPython) && fs.existsSync(ttsScript)) {
         try {
-          const ttsProc = spawn(venvPython, ["app_voice.py"], {
+          const ttsProc = spawn(venvPython, ["-s", "-E", "app_voice.py"], {
             cwd: ttsDir,
-            stdio: "ignore",
+            stdio: "pipe",
             detached: false,
             shell: false,
             windowsHide: true,
+            env: { ...process.env, PARENT_ELECTRON_PID: process.pid.toString() },
           });
+
           ttsProc.on("error", (err) => console.warn("[TTS Proc Error]:", err.message));
           spawnedProcesses.push(ttsProc);
         } catch (e) {
@@ -369,6 +391,7 @@ async function ensureBackendServices() {
   updateSplash("✨ 準備完了！HomeSpark GeMo を起動します...", 95);
 }
 
+// Complete zombie process annihilation via taskkill tree kill
 function cleanupProcesses() {
   if (internalServer) {
     try {
@@ -377,11 +400,13 @@ function cleanupProcesses() {
       // ignore
     }
   }
+
   for (const proc of spawnedProcesses) {
     try {
       if (proc.pid) {
         if (process.platform === "win32") {
-          spawnSync("taskkill", ["/pid", proc.pid.toString(), "/f", "/t"], { windowsHide: true });
+          // Forcefully kill entire process tree (/t /f) to annihilate zombie processes
+          spawnSync("taskkill", ["/pid", proc.pid.toString(), "/t", "/f"], { windowsHide: true });
         } else {
           proc.kill("SIGTERM");
         }
