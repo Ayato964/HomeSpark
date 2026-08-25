@@ -35,20 +35,42 @@ function checkPortAlive(port: number): Promise<boolean> {
     req.on("error", () => {
       resolve(false);
     });
-    req.setTimeout(1000, () => {
+    req.setTimeout(800, () => {
       req.destroy();
       resolve(false);
     });
   });
 }
 
-// Auto-start backend services if not already running
-async function ensureBackendServices() {
-  const backendAlive = await checkPortAlive(8080);
-  const rootDir = path.resolve(__dirname, "../../");
-  const backendDir = path.join(rootDir, "lab_sales_spark_backend");
+// Wait until a port is open
+async function waitForPort(port: number, timeoutMs = 25000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const isAlive = await checkPortAlive(port);
+    if (isAlive) return true;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return false;
+}
+
+// Auto-start frontend and backend services
+async function ensureAllServices() {
+  const rootDir = isDev
+    ? path.resolve(__dirname, "../../")
+    : path.resolve(process.resourcesPath, "../../../");
+
+  const frontendDir = isDev
+    ? path.resolve(__dirname, "../")
+    : path.resolve(rootDir, "lab_sales_spark_frontend");
+
+  const backendDir = isDev
+    ? path.join(rootDir, "lab_sales_spark_backend")
+    : path.join(rootDir, "lab_sales_spark_backend");
+
   const venvPython = path.join(backendDir, ".venv", "Scripts", "python.exe");
 
+  // 1. Ensure Backend Server (port 8080)
+  const backendAlive = await checkPortAlive(8080);
   if (!backendAlive) {
     console.log("[Electron] Starting local backend server (port 8080)...");
     try {
@@ -70,6 +92,7 @@ async function ensureBackendServices() {
     console.log("[Electron] Backend server already running on port 8080.");
   }
 
+  // 2. Ensure Local TTS Engine (port 8008)
   const ttsAlive = await checkPortAlive(8008);
   if (!ttsAlive) {
     console.log("[Electron] Starting local TTS engine (port 8008)...");
@@ -87,6 +110,26 @@ async function ensureBackendServices() {
     }
   } else {
     console.log("[Electron] TTS engine already running on port 8008.");
+  }
+
+  // 3. Ensure Frontend Next.js Server (port 3000)
+  const frontendAlive = await checkPortAlive(3000);
+  if (!frontendAlive) {
+    console.log("[Electron] Starting Next.js frontend server (port 3000)...");
+    try {
+      const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+      const frontendProc = spawn(npxCmd, ["next", "start", "-p", "3000"], {
+        cwd: frontendDir,
+        stdio: "ignore",
+        detached: false,
+        shell: true,
+      });
+      spawnedProcesses.push(frontendProc);
+    } catch (e) {
+      console.error("[Electron] Failed to auto-start frontend:", e);
+    }
+  } else {
+    console.log("[Electron] Frontend server already running on port 3000.");
   }
 }
 
@@ -125,7 +168,7 @@ function createDefaultTrayIcon(): NativeImage {
   return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
 }
 
-function createWindow() {
+async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 880,
@@ -143,11 +186,19 @@ function createWindow() {
     },
   });
 
-  if (isDev) {
-    mainWindow.loadURL(FRONTEND_URL);
-  } else {
-    mainWindow.loadURL(FRONTEND_URL);
-  }
+  // Wait for port 3000 to be ready before loading
+  await waitForPort(3000, 25000);
+
+  const loadWithRetry = (retries = 5) => {
+    mainWindow?.loadURL(FRONTEND_URL).catch((err) => {
+      console.warn(`[Electron] loadURL failed (${retries} retries left):`, err);
+      if (retries > 0) {
+        setTimeout(() => loadWithRetry(retries - 1), 1000);
+      }
+    });
+  };
+
+  loadWithRetry();
 
   // Window state listeners
   mainWindow.on("maximize", () => {
@@ -342,8 +393,8 @@ function setupIPC() {
 app.whenReady().then(async () => {
   setupIPC();
   createTray();
-  await ensureBackendServices();
-  createWindow();
+  await ensureAllServices();
+  await createWindow();
   createOverlayWindow();
 
   // Register Global Shortcut (Ctrl + Alt + J / Cmd + Alt + J)
