@@ -9,13 +9,31 @@ Write-Host " [AUTOMATED FACT CHECK] HomeSpark Binary Integrity Verifier"
 Write-Host "=================================================================="
 
 if (-not $InstallerPath) {
-    # Find latest exe in dist-package
-    $distDir = "G:\My_Project\spark\lab_sales_spark_frontend\dist-package"
-    $exes = Get-ChildItem -Path $distDir -Filter "*.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-    if ($exes) {
-        $InstallerPath = $exes[0].FullName
-    } else {
-        Write-Error "[FAIL] No installer executable found to verify!"
+    # Dynamically find dist-package relative to the script location or current directory
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $candidates = @(
+        (Join-Path $scriptDir "..\lab_sales_spark_frontend\dist-package"),
+        (Join-Path (Get-Location) "lab_sales_spark_frontend\dist-package"),
+        (Join-Path (Get-Location) "dist-package")
+    )
+    
+    $distDir = $null
+    foreach ($cand in $candidates) {
+        if (Test-Path $cand) {
+            $distDir = (Resolve-Path $cand).Path
+            break
+        }
+    }
+
+    if ($distDir) {
+        $exes = Get-ChildItem -Path $distDir -Filter "*.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+        if ($exes) {
+            $InstallerPath = $exes[0].FullName
+        }
+    }
+    
+    if (-not $InstallerPath) {
+        Write-Error "[FAIL] No installer executable found to verify! Searched in candidates: $($candidates -join ', ')"
     }
 }
 
@@ -31,9 +49,17 @@ if ($file.Length -lt 150MB) {
 }
 
 # 7-Zip inspection
-$7z = "C:\Program Files\7-Zip\7z.exe"
-if (-not (Test-Path $7z)) {
-    $7z = "C:\Program Files (x86)\7-Zip\7z.exe"
+$7zCmd = Get-Command "7z.exe" -ErrorAction SilentlyContinue
+$7z = if ($7zCmd) { $7zCmd.Source } else { $null }
+if (-not $7z) {
+    $7zCandidates = @(
+        "C:\Program Files\7-Zip\7z.exe",
+        "C:\Program Files (x86)\7-Zip\7z.exe",
+        "C:\ProgramData\chocolatey\bin\7z.exe"
+    )
+    foreach ($cand in $7zCandidates) {
+        if (Test-Path $cand) { $7z = $cand; break }
+    }
 }
 if (-not (Test-Path $7z)) {
     Write-Host "[WARN] 7-Zip not installed. Skipping deep internal extraction check."
