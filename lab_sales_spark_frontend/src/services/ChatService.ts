@@ -721,36 +721,120 @@ export class ChatService {
     return { has_gpu: false };
   }
 
-  /** Get current LLM API key status (masked preview). */
-  public async getApiKeyStatus(): Promise<{ has_key: boolean; preview: string; base_url: string; model_name: string }> {
+  /** Get full multi-provider LLM configuration and hardware info. */
+  public async getLlmConfig(): Promise<{
+    active_provider: 'gemini' | 'openai' | 'custom_vllm' | 'local_vllm';
+    providers: {
+      gemini: { has_key: boolean; preview: string; base_url: string; model_name: string };
+      openai: { has_key: boolean; preview: string; base_url: string; model_name: string };
+      custom_vllm: { has_key: boolean; preview: string; base_url: string; model_name: string };
+      local_vllm: { has_key: boolean; preview: string; base_url: string; model_name: string };
+    };
+    gpu: {
+      has_gpu: boolean;
+      gpu_name?: string | null;
+      vram_gb?: number | null;
+    };
+  }> {
     try {
-      const response = await fetch(`${this.backendUrl}/api/settings/api-key`);
+      const response = await fetch(`${this.backendUrl}/api/settings/llm-config`);
       if (response.ok) {
         return await response.json();
       }
     } catch {
       // fallback
     }
-    return { has_key: false, preview: '', base_url: 'https://jp-01.bytecompute.ai/v1', model_name: 'gemma-4-31B-it' };
+    return {
+      active_provider: 'custom_vllm',
+      providers: {
+        gemini: { has_key: false, preview: '', base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/', model_name: 'gemini-2.5-flash' },
+        openai: { has_key: false, preview: '', base_url: 'https://api.openai.com/v1', model_name: 'gpt-4o-mini' },
+        custom_vllm: { has_key: false, preview: '', base_url: 'https://jp-01.bytecompute.ai/v1', model_name: 'gemma-4-31B-it' },
+        local_vllm: { has_key: false, preview: '', base_url: 'http://127.0.0.1:8000/v1', model_name: 'google/gemma-4-31B-it' },
+      },
+      gpu: {
+        has_gpu: false,
+        gpu_name: null,
+        vram_gb: null,
+      },
+    };
   }
 
-  /** Save LLM API key and activate immediately. */
-  public async saveApiKey(apiKey: string, baseUrl?: string, modelName?: string): Promise<{ status: string; message: string; has_key: boolean; preview: string }> {
-    const response = await fetch(`${this.backendUrl}/api/settings/api-key`, {
+  /** Save multi-provider LLM configuration and activate immediately. */
+  public async saveLlmConfig(data: any): Promise<{ status: string; message: string; active_provider: string }> {
+    const response = await fetch(`${this.backendUrl}/api/settings/llm-config`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        api_key: apiKey,
-        base_url: baseUrl,
-        model_name: modelName,
-      }),
+      body: JSON.stringify(data),
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || `APIキーの保存に失敗しました: ${response.status}`);
+      throw new Error(err.detail || `LLM設定の保存に失敗しました: ${response.status}`);
     }
     return response.json();
+  }
+
+  /** Test connection to specified LLM provider. */
+  public async testLlmConnection(data: {
+    provider: string;
+    api_key?: string;
+    base_url?: string;
+    model_name?: string;
+    hf_token?: string;
+  }): Promise<{ success: boolean; latency_ms: number; message: string; response?: string; error?: string }> {
+    const response = await fetch(`${this.backendUrl}/api/settings/llm-test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `疎通テストに失敗しました: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /** Start local inference server. */
+  public async startLocalLlm(modelName?: string, hfToken?: string): Promise<any> {
+    const response = await fetch(`${this.backendUrl}/api/system/local-llm/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model_name: modelName, hf_token: hfToken }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `ローカルLLMの起動に失敗しました: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /** Stop local inference server. */
+  public async stopLocalLlm(): Promise<any> {
+    const response = await fetch(`${this.backendUrl}/api/system/local-llm/stop`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error(`ローカルLLMの停止に失敗しました: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /** Get live status of local inference server. */
+  public async getLocalLlmStatus(): Promise<any> {
+    try {
+      const response = await fetch(`${this.backendUrl}/api/system/local-llm/status`);
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch {
+      // fallback
+    }
+    return { is_running: false };
   }
 }

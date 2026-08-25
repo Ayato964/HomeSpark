@@ -935,106 +935,271 @@ class ApiKeySettingsRequest(BaseModel):
     model_name: Optional[str] = None
 
 
-@app.get("/api/settings/api-key")
-async def get_api_key_settings():
-    """Get current API key status (masked for security)."""
-    current_key = os.getenv("BYTECOMPUTE_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
-    has_key = bool(current_key and current_key.strip())
-    masked = ""
-    if has_key:
-        clean = current_key.strip()
-        if len(clean) > 8:
-            masked = clean[:8] + "..." + clean[-4:]
-        else:
-            masked = clean[:2] + "..."
+class ProviderSettingsItem(BaseModel):
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model_name: Optional[str] = None
+    hf_token: Optional[str] = None
+
+
+class MultiProviderSettingsRequest(BaseModel):
+    active_provider: str  # 'gemini' | 'openai' | 'custom_vllm' | 'local_vllm'
+    gemini: Optional[ProviderSettingsItem] = None
+    openai: Optional[ProviderSettingsItem] = None
+    custom_vllm: Optional[ProviderSettingsItem] = None
+    local_vllm: Optional[ProviderSettingsItem] = None
+
+
+class TestLlmConnectionRequest(BaseModel):
+    provider: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model_name: Optional[str] = None
+    hf_token: Optional[str] = None
+
+
+def _mask_key(key: Optional[str]) -> str:
+    if not key or not key.strip():
+        return ""
+    clean = key.strip()
+    if len(clean) > 8:
+        return clean[:8] + "..." + clean[-4:]
+    return clean[:2] + "..."
+
+
+@app.get("/api/settings/llm-config")
+async def get_llm_config_endpoint():
+    """Get multi-provider LLM configuration and hardware diagnosis."""
+    from config.const import (
+        DEFAULT_GEMINI_MODEL,
+        DEFAULT_OPENAI_MODEL,
+        DEFAULT_CUSTOM_VLLM_MODEL,
+        DEFAULT_LOCAL_VLLM_MODEL,
+        GEMINI_BASE_URL,
+        OPENAI_BASE_URL,
+        DEFAULT_CUSTOM_VLLM_URL,
+        DEFAULT_LOCAL_VLLM_URL,
+    )
+
+    active_provider = os.getenv("LLM_PROVIDER", "custom_vllm")
+
+    # Hardware diagnosis
+    has_gpu = False
+    gpu_name = None
+    vram_gb = None
+    try:
+        import torch
+        if torch.cuda.is_available():
+            has_gpu = True
+            gpu_name = torch.cuda.get_device_name(0)
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+            vram_gb = round(total_bytes / (1024 ** 3), 1)
+    except Exception:
+        pass
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    custom_key = os.getenv("BYTECOMPUTE_API_KEY") or os.getenv("CUSTOM_VLLM_API_KEY", "")
+    hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN", "")
+
     return {
-        "has_key": has_key,
-        "preview": masked,
-        "base_url": os.getenv("BYTECOMPUTE_BASE_URL", "https://jp-01.bytecompute.ai/v1"),
-        "model_name": os.getenv("MODEL_NAME", "gemma-4-31B-it"),
+        "active_provider": active_provider,
+        "providers": {
+            "gemini": {
+                "has_key": bool(gemini_key),
+                "preview": _mask_key(gemini_key),
+                "base_url": os.getenv("GEMINI_BASE_URL", GEMINI_BASE_URL),
+                "model_name": os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
+            },
+            "openai": {
+                "has_key": bool(openai_key),
+                "preview": _mask_key(openai_key),
+                "base_url": os.getenv("OPENAI_BASE_URL", OPENAI_BASE_URL),
+                "model_name": os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+            },
+            "custom_vllm": {
+                "has_key": bool(custom_key),
+                "preview": _mask_key(custom_key),
+                "base_url": os.getenv("BYTECOMPUTE_BASE_URL") or os.getenv("CUSTOM_VLLM_URL") or DEFAULT_CUSTOM_VLLM_URL,
+                "model_name": os.getenv("MODEL_NAME") or os.getenv("CUSTOM_VLLM_MODEL") or DEFAULT_CUSTOM_VLLM_MODEL,
+            },
+            "local_vllm": {
+                "has_key": bool(hf_token),
+                "preview": _mask_key(hf_token),
+                "base_url": os.getenv("LOCAL_VLLM_URL", DEFAULT_LOCAL_VLLM_URL),
+                "model_name": os.getenv("LOCAL_VLLM_MODEL", DEFAULT_LOCAL_VLLM_MODEL),
+            },
+        },
+        "gpu": {
+            "has_gpu": has_gpu,
+            "gpu_name": gpu_name,
+            "vram_gb": vram_gb,
+        }
     }
 
 
-@app.post("/api/settings/api-key")
-async def set_api_key_settings(req: ApiKeySettingsRequest):
-    """Save API key and update runtime environment immediately without restart."""
-    new_key = req.api_key.strip()
-    if not new_key:
-        raise HTTPException(status_code=400, detail="API key cannot be empty")
-    
-    # 1. Update live process environment immediately
-    os.environ["BYTECOMPUTE_API_KEY"] = new_key
-    if req.base_url and req.base_url.strip():
-        os.environ["BYTECOMPUTE_BASE_URL"] = req.base_url.strip()
-    if req.model_name and req.model_name.strip():
-        os.environ["MODEL_NAME"] = req.model_name.strip()
-    
-    # 2. Persist to %APPDATA%/HomeSpark/.env
+@app.post("/api/settings/llm-config")
+async def save_llm_config_endpoint(req: MultiProviderSettingsRequest):
+    """Save structured multi-provider LLM configuration and hot-reload."""
+    active = req.active_provider
+    os.environ["LLM_PROVIDER"] = active
+
+    env_updates: dict[str, str] = {
+        "LLM_PROVIDER": active,
+    }
+
+    if req.gemini:
+        if req.gemini.api_key and req.gemini.api_key.strip():
+            k = req.gemini.api_key.strip()
+            os.environ["GEMINI_API_KEY"] = k
+            env_updates["GEMINI_API_KEY"] = k
+        if req.gemini.model_name and req.gemini.model_name.strip():
+            m = req.gemini.model_name.strip()
+            os.environ["GEMINI_MODEL"] = m
+            env_updates["GEMINI_MODEL"] = m
+
+    if req.openai:
+        if req.openai.api_key and req.openai.api_key.strip():
+            k = req.openai.api_key.strip()
+            os.environ["OPENAI_API_KEY"] = k
+            env_updates["OPENAI_API_KEY"] = k
+        if req.openai.model_name and req.openai.model_name.strip():
+            m = req.openai.model_name.strip()
+            os.environ["OPENAI_MODEL"] = m
+            env_updates["OPENAI_MODEL"] = m
+
+    if req.custom_vllm:
+        if req.custom_vllm.api_key is not None:
+            k = req.custom_vllm.api_key.strip()
+            os.environ["BYTECOMPUTE_API_KEY"] = k
+            env_updates["BYTECOMPUTE_API_KEY"] = k
+            os.environ["CUSTOM_VLLM_API_KEY"] = k
+            env_updates["CUSTOM_VLLM_API_KEY"] = k
+        if req.custom_vllm.base_url and req.custom_vllm.base_url.strip():
+            u = req.custom_vllm.base_url.strip()
+            os.environ["BYTECOMPUTE_BASE_URL"] = u
+            env_updates["BYTECOMPUTE_BASE_URL"] = u
+            os.environ["CUSTOM_VLLM_URL"] = u
+            env_updates["CUSTOM_VLLM_URL"] = u
+        if req.custom_vllm.model_name and req.custom_vllm.model_name.strip():
+            m = req.custom_vllm.model_name.strip()
+            os.environ["MODEL_NAME"] = m
+            env_updates["MODEL_NAME"] = m
+            os.environ["CUSTOM_VLLM_MODEL"] = m
+            env_updates["CUSTOM_VLLM_MODEL"] = m
+
+    if req.local_vllm:
+        if req.local_vllm.hf_token is not None:
+            t = req.local_vllm.hf_token.strip()
+            os.environ["HF_TOKEN"] = t
+            env_updates["HF_TOKEN"] = t
+            os.environ["HUGGING_FACE_HUB_TOKEN"] = t
+            env_updates["HUGGING_FACE_HUB_TOKEN"] = t
+        if req.local_vllm.model_name and req.local_vllm.model_name.strip():
+            m = req.local_vllm.model_name.strip()
+            os.environ["LOCAL_VLLM_MODEL"] = m
+            env_updates["LOCAL_VLLM_MODEL"] = m
+        if req.local_vllm.base_url and req.local_vllm.base_url.strip():
+            u = req.local_vllm.base_url.strip()
+            os.environ["LOCAL_VLLM_URL"] = u
+            env_updates["LOCAL_VLLM_URL"] = u
+
+    # Persist all updates to %APPDATA%/HomeSpark/.env
     env_file = _get_appdata_env_path()
     try:
         existing_lines = []
         if os.path.isfile(env_file):
             with open(env_file, "r", encoding="utf-8") as f:
                 existing_lines = f.readlines()
-        
-        key_found = False
+
+        written_keys = set()
         new_lines = []
         for line in existing_lines:
-            if line.startswith("BYTECOMPUTE_API_KEY="):
-                new_lines.append(f"BYTECOMPUTE_API_KEY={new_key}\n")
-                key_found = True
-            else:
+            matched = False
+            for k, val in env_updates.items():
+                if line.startswith(f"{k}="):
+                    new_lines.append(f"{k}={val}\n")
+                    written_keys.add(k)
+                    matched = True
+                    break
+            if not matched:
                 new_lines.append(line)
-        if not key_found:
-            new_lines.append(f"BYTECOMPUTE_API_KEY={new_key}\n")
-        
+
+        for k, val in env_updates.items():
+            if k not in written_keys:
+                new_lines.append(f"{k}={val}\n")
+
         with open(env_file, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
-        logger.info(f"[Settings] Saved BYTECOMPUTE_API_KEY to {env_file}")
+        logger.info(f"[Settings] Saved multi-provider LLM config to {env_file}")
     except Exception as e:
         logger.warning(f"[Settings] Failed to write to {env_file}: {e}")
 
-    # Also try to persist to local backend .env if exists
-    local_env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    try:
-        if os.path.isfile(local_env):
-            with open(local_env, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            k_found = False
-            n_lines = []
-            for l in lines:
-                if l.startswith("BYTECOMPUTE_API_KEY="):
-                    n_lines.append(f"BYTECOMPUTE_API_KEY={new_key}\n")
-                    k_found = True
-                else:
-                    n_lines.append(l)
-            if not k_found:
-                n_lines.append(f"BYTECOMPUTE_API_KEY={new_key}\n")
-            with open(local_env, "w", encoding="utf-8") as f:
-                f.writelines(n_lines)
-    except Exception:
-        pass
-
     return {
         "status": "ok",
-        "message": "API key successfully updated and activated",
-        "has_key": True,
-        "preview": new_key[:8] + "..." + new_key[-4:] if len(new_key) > 8 else "***"
+        "message": f"LLM provider switched to '{active}' and settings updated",
+        "active_provider": active,
     }
+
+
+@app.post("/api/settings/llm-test")
+async def test_llm_connection_endpoint(req: TestLlmConnectionRequest):
+    """Test connection to the specified LLM provider with a minimal prompt."""
+    import time
+    from core.llm_client import OpenAICompatClient
+
+    start_t = time.time()
+    try:
+        client = OpenAICompatClient(
+            provider=req.provider,
+            api_key=req.api_key,
+            base_url=req.base_url,
+            model=req.model_name,
+        )
+        res = client.ask(
+            user_content="ping",
+            system_prompt="Respond with 'pong' only.",
+            history=[],
+            tool_registry=None,
+            json_schema=None,
+            tool_mode="off",
+            stream=False,
+            max_tokens=5,
+        )
+        latency_ms = int((time.time() - start_t) * 1000)
+        return {
+            "success": True,
+            "latency_ms": latency_ms,
+            "response": res.content.strip(),
+            "message": f"接続成功 ({latency_ms}ms) - モデル応答を確認しました",
+        }
+    except Exception as e:
+        latency_ms = int((time.time() - start_t) * 1000)
+        return {
+            "success": False,
+            "latency_ms": latency_ms,
+            "error": str(e),
+            "message": f"接続失敗 ({latency_ms}ms): {str(e)}",
+        }
 
 
 @app.get("/api/system/gpu-status")
 async def get_gpu_status():
-    """Check GPU and CUDA availability on the machine."""
+    """Check GPU and CUDA availability on the machine with VRAM capacity."""
     try:
         import torch
         cuda_available = torch.cuda.is_available()
         gpu_name = torch.cuda.get_device_name(0) if cuda_available else None
         device_count = torch.cuda.device_count() if cuda_available else 0
+        vram_gb = None
+        if cuda_available:
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+            vram_gb = round(total_bytes / (1024 ** 3), 1)
         return {
             "has_gpu": cuda_available,
             "gpu_name": gpu_name,
             "device_count": device_count,
+            "vram_gb": vram_gb,
             "cuda_version": torch.version.cuda if cuda_available else None,
         }
     except Exception as e:
@@ -1042,8 +1207,42 @@ async def get_gpu_status():
             "has_gpu": False,
             "gpu_name": None,
             "device_count": 0,
+            "vram_gb": None,
             "error": str(e)
         }
+
+
+class LocalLlmControlRequest(BaseModel):
+    model_name: Optional[str] = "google/gemma-4-31B-it"
+    hf_token: Optional[str] = None
+    port: Optional[int] = 8000
+
+
+@app.get("/api/system/local-llm/status")
+async def get_local_llm_status_endpoint():
+    """Get status of the local inference server."""
+    from core.local_llm_manager import get_local_llm_status
+    return get_local_llm_status()
+
+
+@app.post("/api/system/local-llm/start")
+async def start_local_llm_endpoint(req: LocalLlmControlRequest):
+    """Start local inference server process."""
+    from core.local_llm_manager import start_local_llm_server
+    token = req.hf_token or os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+    status = start_local_llm_server(
+        model_name=req.model_name or "google/gemma-4-31B-it",
+        hf_token=token,
+        port=req.port or 8000,
+    )
+    return status
+
+
+@app.post("/api/system/local-llm/stop")
+async def stop_local_llm_endpoint():
+    """Stop running local inference server process."""
+    from core.local_llm_manager import stop_local_llm_server
+    return stop_local_llm_server()
 
 
 class AnalyzeEventRequest(BaseModel):

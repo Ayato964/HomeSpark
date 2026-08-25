@@ -2,8 +2,32 @@ from __future__ import annotations
 
 import os
 
-DEFAULT_BASE_URL = "https://jp-01.bytecompute.ai/v1"
-DEFAULT_MODEL = "gemma-4-31B-it"
+# --------------------------------------------------------------------------- #
+# Multi-Provider LLM Configuration
+# --------------------------------------------------------------------------- #
+# 'gemini' | 'openai' | 'custom_vllm' | 'local_vllm'
+DEFAULT_LLM_PROVIDER = "custom_vllm"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", DEFAULT_LLM_PROVIDER)
+
+# Gemini Defaults (via Google's OpenAI-compatible endpoint)
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
+# OpenAI Defaults
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+# Custom vLLM / ByteCompute Defaults
+DEFAULT_CUSTOM_VLLM_URL = "https://jp-01.bytecompute.ai/v1"
+DEFAULT_CUSTOM_VLLM_MODEL = "gemma-4-31B-it"
+
+# Local vLLM Defaults
+DEFAULT_LOCAL_VLLM_URL = "http://127.0.0.1:8000/v1"
+DEFAULT_LOCAL_VLLM_MODEL = "google/gemma-4-31B-it"
+
+# Legacy / Default aliases
+DEFAULT_BASE_URL = DEFAULT_CUSTOM_VLLM_URL
+DEFAULT_MODEL = DEFAULT_CUSTOM_VLLM_MODEL
 
 BASE_URL = os.getenv("BYTECOMPUTE_BASE_URL", DEFAULT_BASE_URL)
 MODEL_NAME = os.getenv("MODEL_NAME", DEFAULT_MODEL)

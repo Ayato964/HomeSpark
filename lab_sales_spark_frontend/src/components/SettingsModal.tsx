@@ -18,14 +18,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // Auto-updater state
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
-  const [currentVersion, setCurrentVersion] = useState<string>('3.1.11');
-  // API Key state
-  const [apiKey, setApiKey] = useState<string>('');
-  const [apiKeyPreview, setApiKeyPreview] = useState<string>('');
-  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
-  const [showApiKeyInput, setShowApiKeyInput] = useState<boolean>(false);
-  const [savingApiKey, setSavingApiKey] = useState<boolean>(false);
-  const [apiKeyMsg, setApiKeyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [currentVersion, setCurrentVersion] = useState<string>('3.1.12');
+
+  // Multi-Provider LLM state
+  const [activeProvider, setActiveProvider] = useState<'gemini' | 'openai' | 'custom_vllm' | 'local_vllm'>('custom_vllm');
+  const [geminiKey, setGeminiKey] = useState<string>('');
+  const [geminiModel, setGeminiModel] = useState<string>('gemini-2.5-flash');
+  const [openaiKey, setOpenaiKey] = useState<string>('');
+  const [openaiModel, setOpenaiModel] = useState<string>('gpt-4o-mini');
+  const [customVllmUrl, setCustomVllmUrl] = useState<string>('https://jp-01.bytecompute.ai/v1');
+  const [customVllmKey, setCustomVllmKey] = useState<string>('');
+  const [customVllmModel, setCustomVllmModel] = useState<string>('gemma-4-31B-it');
+  const [hfToken, setHfToken] = useState<string>('');
+  const [localModel, setLocalModel] = useState<string>('google/gemma-4-31B-it');
+  
+  // Provider preview / status
+  const [providerStatus, setProviderStatus] = useState<{
+    gemini: { has_key: boolean; preview: string; base_url: string; model_name: string };
+    openai: { has_key: boolean; preview: string; base_url: string; model_name: string };
+    custom_vllm: { has_key: boolean; preview: string; base_url: string; model_name: string };
+    local_vllm: { has_key: boolean; preview: string; base_url: string; model_name: string };
+  }>({
+    gemini: { has_key: false, preview: '', base_url: '', model_name: 'gemini-2.5-flash' },
+    openai: { has_key: false, preview: '', base_url: '', model_name: 'gpt-4o-mini' },
+    custom_vllm: { has_key: false, preview: '', base_url: '', model_name: 'gemma-4-31B-it' },
+    local_vllm: { has_key: false, preview: '', base_url: '', model_name: 'google/gemma-4-31B-it' },
+  });
+
+  // Hardware state
+  const [gpuInfo, setGpuInfo] = useState<{ has_gpu: boolean; gpu_name?: string | null; vram_gb?: number | null }>({
+    has_gpu: false,
+    gpu_name: null,
+    vram_gb: null,
+  });
+
+  const [savingLlm, setSavingLlm] = useState<boolean>(false);
+  const [testingLlm, setTestingLlm] = useState<boolean>(false);
+  const [llmMsg, setLlmMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const chatService = new ChatService();
 
@@ -55,16 +84,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   useEffect(() => {
     if (isOpen) {
       setStorageMsg(null);
-      setApiKeyMsg(null);
+      setLlmMsg(null);
       setLoading(true);
-      
+
       Promise.all([
         chatService.getStorageMode().catch(() => 'cloud' as const),
-        chatService.getApiKeyStatus().catch(() => ({ has_key: false, preview: '', base_url: '', model_name: '' }))
-      ]).then(([mode, keyStatus]) => {
+        chatService.getLlmConfig().catch(() => null),
+      ]).then(([mode, llmConfig]) => {
         setStorageMode(mode);
-        setHasApiKey(keyStatus.has_key);
-        setApiKeyPreview(keyStatus.preview);
+        if (llmConfig) {
+          setActiveProvider(llmConfig.active_provider);
+          setProviderStatus(llmConfig.providers);
+          setGpuInfo(llmConfig.gpu);
+          if (llmConfig.providers.gemini?.model_name) setGeminiModel(llmConfig.providers.gemini.model_name);
+          if (llmConfig.providers.openai?.model_name) setOpenaiModel(llmConfig.providers.openai.model_name);
+          if (llmConfig.providers.custom_vllm?.base_url) setCustomVllmUrl(llmConfig.providers.custom_vllm.base_url);
+          if (llmConfig.providers.custom_vllm?.model_name) setCustomVllmModel(llmConfig.providers.custom_vllm.model_name);
+          if (llmConfig.providers.local_vllm?.model_name) setLocalModel(llmConfig.providers.local_vllm.model_name);
+        }
       }).finally(() => {
         setLoading(false);
       });
@@ -107,23 +144,94 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     window.electronAPI?.restartAndInstallUpdate();
   };
 
-  const handleSaveApiKey = async () => {
-    if (!apiKey.trim() || savingApiKey) return;
-    setSavingApiKey(true);
-    setApiKeyMsg(null);
+  const handleSaveLlmConfig = async () => {
+    if (savingLlm) return;
+    setSavingLlm(true);
+    setLlmMsg(null);
+
+    const payload: any = {
+      active_provider: activeProvider,
+      gemini: {
+        api_key: geminiKey || undefined,
+        model_name: geminiModel,
+      },
+      openai: {
+        api_key: openaiKey || undefined,
+        model_name: openaiModel,
+      },
+      custom_vllm: {
+        api_key: customVllmKey || undefined,
+        base_url: customVllmUrl,
+        model_name: customVllmModel,
+      },
+      local_vllm: {
+        hf_token: hfToken || undefined,
+        model_name: localModel,
+      },
+    };
+
     try {
-      const res = await chatService.saveApiKey(apiKey.trim());
-      setHasApiKey(true);
-      setApiKeyPreview(res.preview);
-      setApiKey('');
-      setShowApiKeyInput(false);
-      setApiKeyMsg({ type: 'success', text: 'APIキーを安全に保存し、即座に有効化しました！' });
+      const res = await chatService.saveLlmConfig(payload);
+      const updated = await chatService.getLlmConfig();
+      if (updated) {
+        setProviderStatus(updated.providers);
+      }
+      setGeminiKey('');
+      setOpenaiKey('');
+      setCustomVllmKey('');
+      setHfToken('');
+      setLlmMsg({ type: 'success', text: `LLM 設定（${getProviderDisplayName(activeProvider)}）を保存し、即座に有効化しました！` });
     } catch (e: any) {
-      setApiKeyMsg({ type: 'error', text: `保存エラー: ${e.message || '不明なエラー'}` });
+      setLlmMsg({ type: 'error', text: `設定保存エラー: ${e.message || '不明なエラー'}` });
     } finally {
-      setSavingApiKey(false);
+      setSavingLlm(false);
     }
   };
+
+  const handleTestConnection = async () => {
+    if (testingLlm) return;
+    setTestingLlm(true);
+    setLlmMsg(null);
+
+    let testPayload: any = { provider: activeProvider };
+    if (activeProvider === 'gemini') {
+      testPayload.api_key = geminiKey || undefined;
+      testPayload.model_name = geminiModel;
+    } else if (activeProvider === 'openai') {
+      testPayload.api_key = openaiKey || undefined;
+      testPayload.model_name = openaiModel;
+    } else if (activeProvider === 'custom_vllm') {
+      testPayload.api_key = customVllmKey || undefined;
+      testPayload.base_url = customVllmUrl;
+      testPayload.model_name = customVllmModel;
+    } else if (activeProvider === 'local_vllm') {
+      testPayload.hf_token = hfToken || undefined;
+      testPayload.model_name = localModel;
+    }
+
+    try {
+      const res = await chatService.testLlmConnection(testPayload);
+      if (res.success) {
+        setLlmMsg({ type: 'success', text: `${res.message} (モデル返答: "${res.response}")` });
+      } else {
+        setLlmMsg({ type: 'error', text: res.message });
+      }
+    } catch (e: any) {
+      setLlmMsg({ type: 'error', text: `接続テスト失敗: ${e.message || 'エラー'}` });
+    } finally {
+      setTestingLlm(false);
+    }
+  };
+
+  function getProviderDisplayName(p: string): string {
+    switch (p) {
+      case 'gemini': return 'Google Gemini';
+      case 'openai': return 'OpenAI';
+      case 'custom_vllm': return '独自の vLLM サーバー';
+      case 'local_vllm': return 'ローカルで動かす (Local vLLM)';
+      default: return p;
+    }
+  }
 
   return (
     <div
@@ -227,35 +335,192 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             gap: '24px',
           }}
         >
-          {/* Section 1: AI / API Key Configuration */}
+          {/* Section 1: Models & LLM Provider Configuration */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4285F4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-              </svg>
-              <span style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text)' }}>
-                AI / LLM API キー設定
-              </span>
-              <span
-                style={{
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: '10px',
-                  fontWeight: 600,
-                  background: 'rgba(66, 133, 244, 0.1)',
-                  color: '#4285F4',
-                  border: '1px solid rgba(66, 133, 244, 0.25)',
-                  padding: '1px 6px',
-                  borderRadius: '4px',
-                }}
-              >
-                Gemma 4-31B-it
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4285F4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text)' }}>
+                  Models / LLM プロバイダー設定
+                </span>
+              </div>
+
+              {/* Hardware / GPU Status Badge */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {gpuInfo.has_gpu ? (
+                  <span
+                    style={{
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      background: 'rgba(52, 168, 83, 0.12)',
+                      color: '#34A853',
+                      border: '1px solid rgba(52, 168, 83, 0.3)',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                    }}
+                  >
+                    GPU: {gpuInfo.gpu_name || 'NVIDIA CUDA'} ({gpuInfo.vram_gb ? `${gpuInfo.vram_gb}GB VRAM` : '有効'})
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      background: 'rgba(234, 67, 53, 0.08)',
+                      color: '#EA4335',
+                      border: '1px solid rgba(234, 67, 53, 0.25)',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                    }}
+                  >
+                    CPU 環境 (GPU 未検出)
+                  </span>
+                )}
+              </div>
             </div>
+
             <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: 'var(--text3)', lineHeight: 1.5 }}>
-              HomeSpark GeMo の対話エンジン（ByteCompute API）に接続するための API キーを設定します。設定は安全にローカル環境に保存され、即座に有効化されます。
+              対話・タスク推論エンジンを選択します。環境に GPU がない場合はクローズド API を推奨します。
             </p>
 
+            {/* Provider Selection Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+              {/* Option 1: Google Gemini */}
+              <div
+                onClick={() => setActiveProvider('gemini')}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  border: `1.5px solid ${activeProvider === 'gemini' ? '#4285F4' : 'var(--border2)'}`,
+                  background: activeProvider === 'gemini' ? 'rgba(66, 133, 244, 0.08)' : 'var(--bg)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <input
+                  type="radio"
+                  checked={activeProvider === 'gemini'}
+                  onChange={() => setActiveProvider('gemini')}
+                  style={{ accentColor: '#4285F4', cursor: 'pointer' }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Google Gemini</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text3)' }}>公式 API / Flash & Pro</span>
+                </div>
+              </div>
+
+              {/* Option 2: OpenAI */}
+              <div
+                onClick={() => setActiveProvider('openai')}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  border: `1.5px solid ${activeProvider === 'openai' ? '#4285F4' : 'var(--border2)'}`,
+                  background: activeProvider === 'openai' ? 'rgba(66, 133, 244, 0.08)' : 'var(--bg)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <input
+                  type="radio"
+                  checked={activeProvider === 'openai'}
+                  onChange={() => setActiveProvider('openai')}
+                  style={{ accentColor: '#4285F4', cursor: 'pointer' }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>OpenAI</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text3)' }}>GPT-4o / GPT-4o-mini</span>
+                </div>
+              </div>
+
+              {/* Option 3: 独自の vLLM サーバー */}
+              <div
+                onClick={() => setActiveProvider('custom_vllm')}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  border: `1.5px solid ${activeProvider === 'custom_vllm' ? '#4285F4' : 'var(--border2)'}`,
+                  background: activeProvider === 'custom_vllm' ? 'rgba(66, 133, 244, 0.08)' : 'var(--bg)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <input
+                  type="radio"
+                  checked={activeProvider === 'custom_vllm'}
+                  onChange={() => setActiveProvider('custom_vllm')}
+                  style={{ accentColor: '#4285F4', cursor: 'pointer' }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>独自の vLLM サーバー</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text3)' }}>ByteCompute / 自社 GPU</span>
+                </div>
+              </div>
+
+              {/* Option 4: ローカルで動かす (GPU連動) */}
+              <div
+                onClick={() => {
+                  if (gpuInfo.has_gpu) setActiveProvider('local_vllm');
+                }}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  border: `1.5px solid ${activeProvider === 'local_vllm' ? '#4285F4' : 'var(--border2)'}`,
+                  background: activeProvider === 'local_vllm'
+                    ? 'rgba(66, 133, 244, 0.08)'
+                    : (!gpuInfo.has_gpu ? 'rgba(0, 0, 0, 0.03)' : 'var(--bg)'),
+                  cursor: gpuInfo.has_gpu ? 'pointer' : 'not-allowed',
+                  opacity: gpuInfo.has_gpu ? 1 : 0.55,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <input
+                  type="radio"
+                  checked={activeProvider === 'local_vllm'}
+                  disabled={!gpuInfo.has_gpu}
+                  onChange={() => {
+                    if (gpuInfo.has_gpu) setActiveProvider('local_vllm');
+                  }}
+                  style={{ accentColor: '#4285F4', cursor: gpuInfo.has_gpu ? 'pointer' : 'not-allowed' }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>ローカルで動かす</span>
+                    {!gpuInfo.has_gpu && (
+                      <span style={{ fontSize: '9px', background: 'var(--border2)', color: 'var(--text3)', padding: '0 4px', borderRadius: '3px' }}>GPU必須</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '10px', color: 'var(--text3)' }}>Local vLLM / HuggingFace</span>
+                </div>
+              </div>
+            </div>
+
+            {/* GPU Disabled Warning if local_vllm is unavailable */}
+            {!gpuInfo.has_gpu && (
+              <div style={{ marginBottom: '12px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(242, 153, 74, 0.08)', border: '1px solid rgba(242, 153, 74, 0.25)', fontSize: '11px', color: '#F2994A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F2994A" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                GPU が検出されなかったため、ローカル推論は無効化されています。クローズド API をご利用ください。
+              </div>
+            )}
+
+            {/* Active Provider Input Details Panel */}
             <div
               style={{
                 padding: '14px 16px',
@@ -267,55 +532,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 gap: '12px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {hasApiKey ? (
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#34A853' }} />
-                  ) : (
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#EA4335' }} />
-                  )}
-                  <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text)' }}>
-                    {hasApiKey ? '接続状態: 有効' : '接続状態: 未設定（要設定）'}
-                  </span>
-                  {hasApiKey && (
-                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', color: 'var(--text3)' }}>
-                      ({apiKeyPreview})
-                    </span>
-                  )}
-                </div>
-
-                {!showApiKeyInput && hasApiKey && (
-                  <button
-                    onClick={() => setShowApiKeyInput(true)}
-                    style={{
-                      padding: '5px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border3)',
-                      background: 'var(--panel)',
-                      color: 'var(--text)',
-                      fontSize: '11.5px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    変更する
-                  </button>
-                )}
-              </div>
-
-              {(showApiKeyInput || !hasApiKey) && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+              {/* Google Gemini Panel */}
+              {activeProvider === 'gemini' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>
+                      Google Gemini API キー
+                      {providerStatus.gemini.has_key && (
+                        <span style={{ marginLeft: '6px', fontWeight: 400, color: '#34A853', fontSize: '10.5px' }}>
+                          (設定済み: {providerStatus.gemini.preview})
+                        </span>
+                      )}
+                    </label>
                     <input
                       type="password"
-                      placeholder="bytecompute_... または APIキーを入力"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSaveApiKey();
-                      }}
+                      placeholder="AIzaSy... (Gemini API キーを入力)"
+                      value={geminiKey}
+                      onChange={(e) => setGeminiKey(e.target.value)}
                       style={{
-                        flex: 1,
                         padding: '8px 12px',
                         borderRadius: '8px',
                         border: '1px solid var(--border3)',
@@ -326,59 +560,262 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         outline: 'none',
                       }}
                     />
-                    <button
-                      onClick={handleSaveApiKey}
-                      disabled={savingApiKey || !apiKey.trim()}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>モデル名 (Model Name)</label>
+                    <input
+                      type="text"
+                      placeholder="gemini-2.5-flash または gemini-2.5-pro"
+                      value={geminiModel}
+                      onChange={(e) => setGeminiModel(e.target.value)}
                       style={{
-                        padding: '8px 16px',
+                        padding: '8px 12px',
                         borderRadius: '8px',
-                        border: 'none',
-                        background: '#4285F4',
-                        color: '#fff',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
                         fontSize: '12px',
-                        fontWeight: 600,
-                        cursor: savingApiKey || !apiKey.trim() ? 'not-allowed' : 'pointer',
-                        opacity: savingApiKey || !apiKey.trim() ? 0.6 : 1,
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
                       }}
-                    >
-                      {savingApiKey ? '保存中...' : '保存して有効化'}
-                    </button>
-                    {hasApiKey && (
-                      <button
-                        onClick={() => {
-                          setShowApiKeyInput(false);
-                          setApiKey('');
-                          setApiKeyMsg(null);
-                        }}
-                        style={{
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          border: '1px solid var(--border2)',
-                          background: 'transparent',
-                          color: 'var(--text3)',
-                          fontSize: '12px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        キャンセル
-                      </button>
-                    )}
+                    />
                   </div>
                 </div>
               )}
 
-              {apiKeyMsg && (
+              {/* OpenAI Panel */}
+              {activeProvider === 'openai' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>
+                      OpenAI API キー
+                      {providerStatus.openai.has_key && (
+                        <span style={{ marginLeft: '6px', fontWeight: 400, color: '#34A853', fontSize: '10.5px' }}>
+                          (設定済み: {providerStatus.openai.preview})
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="sk-proj-... (OpenAI API キーを入力)"
+                      value={openaiKey}
+                      onChange={(e) => setOpenaiKey(e.target.value)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>モデル名 (Model Name)</label>
+                    <input
+                      type="text"
+                      placeholder="gpt-4o-mini, gpt-4o, gpt-4.5-preview など"
+                      value={openaiModel}
+                      onChange={(e) => setOpenaiModel(e.target.value)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 独自の vLLM サーバー Panel */}
+              {activeProvider === 'custom_vllm' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>サーバーエンドポイント (Base URL)</label>
+                    <input
+                      type="text"
+                      placeholder="https://jp-01.bytecompute.ai/v1 または http://192.168.1.100:8000/v1"
+                      value={customVllmUrl}
+                      onChange={(e) => setCustomVllmUrl(e.target.value)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>
+                      API キー (オプション)
+                      {providerStatus.custom_vllm.has_key && (
+                        <span style={{ marginLeft: '6px', fontWeight: 400, color: '#34A853', fontSize: '10.5px' }}>
+                          (設定済み: {providerStatus.custom_vllm.preview})
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="bytecompute_... または空欄"
+                      value={customVllmKey}
+                      onChange={(e) => setCustomVllmKey(e.target.value)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>モデル名 (Model Name)</label>
+                    <input
+                      type="text"
+                      placeholder="gemma-4-31B-it または Qwen/Qwen2.5-72B-Instruct"
+                      value={customVllmModel}
+                      onChange={(e) => setCustomVllmModel(e.target.value)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ローカルで動かす Panel */}
+              {activeProvider === 'local_vllm' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>
+                      Hugging Face API Token
+                      {providerStatus.local_vllm.has_key && (
+                        <span style={{ marginLeft: '6px', fontWeight: 400, color: '#34A853', fontSize: '10.5px' }}>
+                          (設定済み: {providerStatus.local_vllm.preview})
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="hf_... (Gated Model 認証用トークン)"
+                      value={hfToken}
+                      onChange={(e) => setHfToken(e.target.value)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text)' }}>モデル名 (Model Name)</label>
+                    <input
+                      type="text"
+                      placeholder="google/gemma-4-31B-it または unsloth/gemma-2-2b-it"
+                      value={localModel}
+                      onChange={(e) => setLocalModel(e.target.value)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons: Test Connection & Save */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px', paddingTop: '10px', borderTop: '1px solid var(--border2)' }}>
+                <button
+                  onClick={handleTestConnection}
+                  disabled={testingLlm}
+                  style={{
+                    padding: '7px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border3)',
+                    background: 'var(--panel)',
+                    color: 'var(--text)',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    cursor: testingLlm ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                  </svg>
+                  {testingLlm ? 'テスト中...' : '接続テスト'}
+                </button>
+
+                <button
+                  onClick={handleSaveLlmConfig}
+                  disabled={savingLlm}
+                  style={{
+                    padding: '7px 18px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: '#4285F4',
+                    color: '#fff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: savingLlm ? 'wait' : 'pointer',
+                  }}
+                >
+                  {savingLlm ? '保存中...' : '設定を保存して有効化'}
+                </button>
+              </div>
+
+              {/* Result Message */}
+              {llmMsg && (
                 <div
                   style={{
                     padding: '8px 12px',
                     borderRadius: '6px',
-                    background: apiKeyMsg.type === 'success' ? 'rgba(52, 168, 83, 0.1)' : 'rgba(234, 67, 53, 0.1)',
-                    border: `1px solid ${apiKeyMsg.type === 'success' ? 'rgba(52, 168, 83, 0.25)' : 'rgba(234, 67, 53, 0.25)'}`,
-                    color: apiKeyMsg.type === 'success' ? '#34A853' : '#EA4335',
+                    background: llmMsg.type === 'success' ? 'rgba(52, 168, 83, 0.1)' : 'rgba(234, 67, 53, 0.1)',
+                    border: `1px solid ${llmMsg.type === 'success' ? 'rgba(52, 168, 83, 0.25)' : 'rgba(234, 67, 53, 0.25)'}`,
+                    color: llmMsg.type === 'success' ? '#34A853' : '#EA4335',
                     fontSize: '11.5px',
                   }}
                 >
-                  {apiKeyMsg.text}
+                  {llmMsg.text}
                 </div>
               )}
             </div>

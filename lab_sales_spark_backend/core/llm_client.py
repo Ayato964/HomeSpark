@@ -18,6 +18,15 @@ from config.const import (
     DEFAULT_TOP_P,
     MAX_TOOL_ITERATIONS,
     MODEL_NAME,
+    LLM_PROVIDER,
+    GEMINI_BASE_URL,
+    DEFAULT_GEMINI_MODEL,
+    OPENAI_BASE_URL,
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_CUSTOM_VLLM_URL,
+    DEFAULT_CUSTOM_VLLM_MODEL,
+    DEFAULT_LOCAL_VLLM_URL,
+    DEFAULT_LOCAL_VLLM_MODEL,
 )
 
 from .prompts import (
@@ -60,11 +69,49 @@ class BaseLLMClient(ABC):
     ) -> AskResult: ...
 
 
+def resolve_provider_config(
+    provider: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+) -> tuple[str, str, str]:
+    """Resolves (resolved_api_key, resolved_base_url, resolved_model) for the active LLM provider."""
+    active_provider = provider or os.getenv("LLM_PROVIDER") or "custom_vllm"
+
+    if active_provider == "gemini":
+        resolved_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("BYTECOMPUTE_API_KEY") or ""
+        resolved_url = base_url or os.getenv("GEMINI_BASE_URL") or GEMINI_BASE_URL
+        resolved_model = model or os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL
+    elif active_provider == "openai":
+        resolved_key = api_key or os.getenv("OPENAI_API_KEY") or ""
+        resolved_url = base_url or os.getenv("OPENAI_BASE_URL") or OPENAI_BASE_URL
+        resolved_model = model or os.getenv("OPENAI_MODEL") or DEFAULT_OPENAI_MODEL
+    elif active_provider == "local_vllm":
+        resolved_key = api_key or os.getenv("HF_TOKEN") or "EMPTY"
+        resolved_url = base_url or os.getenv("LOCAL_VLLM_URL") or DEFAULT_LOCAL_VLLM_URL
+        resolved_model = model or os.getenv("LOCAL_VLLM_MODEL") or DEFAULT_LOCAL_VLLM_MODEL
+    else:  # custom_vllm / default
+        resolved_key = (
+            api_key
+            or os.getenv("BYTECOMPUTE_API_KEY")
+            or os.getenv("CUSTOM_VLLM_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+            or ""
+        )
+        resolved_url = base_url or os.getenv("BYTECOMPUTE_BASE_URL") or os.getenv("CUSTOM_VLLM_URL") or DEFAULT_CUSTOM_VLLM_URL
+        resolved_model = model or os.getenv("MODEL_NAME") or DEFAULT_CUSTOM_VLLM_MODEL
+
+    return resolved_key, resolved_url, resolved_model
+
+
 class OpenAICompatClient(BaseLLMClient):
     """Talks to any OpenAI-compatible Chat Completions endpoint.
 
-    Designed for bytecompute.ai serving Gemma 4, but works against any
-    compatible server (vLLM, OpenRouter, Together, local llama.cpp, etc.).
+    Supports:
+    - Google Gemini (via official OpenAI-compatible endpoint)
+    - OpenAI (GPT-4o, etc.)
+    - Custom vLLM / ByteCompute / self-hosted GPU servers
+    - Local vLLM on Windows
     """
 
     def __init__(
@@ -73,16 +120,29 @@ class OpenAICompatClient(BaseLLMClient):
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        provider: str | None = None,
         max_tool_iterations: int = MAX_TOOL_ITERATIONS,
     ) -> None:
-        resolved_key = api_key or os.getenv(API_KEY_ENV)
-        if not resolved_key:
+        resolved_key, resolved_url, resolved_model = resolve_provider_config(
+            provider=provider,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
+
+        active_provider = provider or os.getenv("LLM_PROVIDER") or "custom_vllm"
+        if not resolved_key and active_provider != "local_vllm":
+            key_name = "GEMINI_API_KEY" if active_provider == "gemini" else ("OPENAI_API_KEY" if active_provider == "openai" else "BYTECOMPUTE_API_KEY")
             raise ValueError(
-                f"API key not found. Set {API_KEY_ENV} in environment or .env, "
-                "or pass api_key= explicitly."
+                f"API key not found for provider '{active_provider}'. Set {key_name} in environment or settings modal."
             )
-        self.client = OpenAI(api_key=resolved_key, base_url=base_url or BASE_URL)
-        self.model = model or MODEL_NAME
+
+        self.client = OpenAI(
+            api_key=resolved_key or "EMPTY",
+            base_url=resolved_url,
+        )
+        self.model = resolved_model
+        self.provider = active_provider
         self.max_tool_iterations = max_tool_iterations
 
     # ------------------------------------------------------------------ public
@@ -608,3 +668,18 @@ class OpenAICompatClient(BaseLLMClient):
         if not isinstance(name, str) or not isinstance(args, dict):
             return None
         return name, args
+
+
+def get_llm_client(
+    provider: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+) -> BaseLLMClient:
+    """Factory to obtain the appropriate LLM client instance for the active configuration."""
+    return OpenAICompatClient(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+    )
