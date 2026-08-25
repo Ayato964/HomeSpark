@@ -617,7 +617,7 @@ export const DigitalBusinessCardView: React.FC<DigitalBusinessCardViewProps> = (
                       boxShadow: '0 4px 14px rgba(45, 212, 191, 0.25)'
                     }}
                   >
-                    {ocrAnalyzing ? 'Gemmaが名刺を分析中...' : '✨ Gemma AIで名刺を解析する'}
+                    {ocrAnalyzing ? '名刺を分析中...' : 'AIで名刺を解析する'}
                   </button>
                 </div>
               </div>

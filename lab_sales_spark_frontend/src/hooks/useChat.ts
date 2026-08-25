@@ -583,7 +583,7 @@ export function useChat(
             ...prev,
             [sparkConvoId]: {
               id: sparkConvoId,
-              title: '✨ Spark 秘書デスク',
+              title: 'Spark 秘書デスク',
               time: '今',
               doc: null,
               messages: [],

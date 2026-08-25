@@ -940,7 +940,7 @@ export const SparkDesk: React.FC<SparkDeskProps> = ({
                   gap: '10px'
                 }}>
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text2)' }}>
-                    ✨ AIに修正を指示する
+                    AIに修正を指示する
                   </span>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <input

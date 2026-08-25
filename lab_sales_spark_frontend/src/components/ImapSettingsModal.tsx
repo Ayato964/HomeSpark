@@ -156,7 +156,7 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
       const res = await chatService.testImapAccount(token, payload);
       setTestResult(res);
     } catch (e: any) {
-      setTestResult({ success: false, error: e.message || '接続テストに失敗しました' });
+      setTestResult({ success: false, error: e.message || '接続テストに失敗しました。' });
     } finally {
       setTesting(false);
     }
@@ -172,10 +172,10 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
       username: (username || emailAddress).trim(),
       password: password.trim(),
       imap_host: imapHost.trim(),
-      imap_port: imapPort,
+      imap_port: Number(imapPort) || 993,
       imap_ssl: imapSsl,
-      smtp_host: smtpHost.trim(),
-      smtp_port: smtpPort,
+      smtp_host: smtpHost.trim() || null,
+      smtp_port: smtpHost.trim() ? (Number(smtpPort) || 465) : null,
       smtp_ssl: smtpSsl,
     };
 
@@ -187,15 +187,17 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
     try {
       setLoading(true);
       await chatService.createImapAccount(token, payload);
+      await fetchAccounts();
       setShowAddForm(false);
+      // Reset form
       setLabel('会社メール');
       setEmailAddress('');
       setUsername('');
       setPassword('');
-      setTestResult(null);
-      await fetchAccounts();
-    } catch (err: any) {
-      setSubmitError(err.message || 'アカウントの登録に失敗しました');
+      setImapHost('');
+      setSmtpHost('');
+    } catch (e: any) {
+      setSubmitError(e.message || 'アカウントの登録に失敗しました。');
     } finally {
       setLoading(false);
     }
@@ -221,28 +223,28 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
       position: 'fixed',
       inset: 0,
       background: 'rgba(0, 0, 0, 0.65)',
-      backdropFilter: 'blur(8px)',
-      WebkitBackdropFilter: 'blur(8px)',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 10000,
       padding: '16px'
-    }}>
+    }} onClick={onClose}>
       <div style={{
         background: 'var(--panel)',
         border: '1px solid var(--border3)',
-        borderRadius: '16px',
+        borderRadius: '18px',
         width: '100%',
         maxWidth: '560px',
         maxHeight: '85vh',
         display: 'flex',
         flexDirection: 'column',
-        boxShadow: '0 20px 50px rgba(0, 0, 0, 0.4)',
+        boxShadow: '0 24px 60px rgba(0, 0, 0, 0.45)',
         color: 'var(--text)',
         fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
         overflow: 'hidden'
-      }}>
+      }} onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div style={{
           padding: '18px 24px',
@@ -250,11 +252,27 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: 'var(--bg)'
+          background: 'var(--topbar)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '20px' }}>📧</span>
-            <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 600 }}>外部メール連携 (IMAP / SMTP)</h2>
+            <div style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '8px',
+              background: 'rgba(66, 133, 244, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#4285F4'
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                <polyline points="22,6 12,13 2,6"/>
+              </svg>
+            </div>
+            <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 600, letterSpacing: '-0.01em' }}>
+              外部メール連携 (IMAP / SMTP)
+            </h2>
           </div>
           <button
             onClick={onClose}
@@ -263,18 +281,24 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
               border: 'none',
               color: 'var(--text3)',
               cursor: 'pointer',
-              fontSize: '18px',
-              padding: '4px'
+              padding: '6px',
+              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
           >
-            ✕
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
           </button>
         </div>
 
         {/* Content */}
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text2)', lineHeight: 1.5 }}>
-            会社の独自ドメインメールや、さくら、エックスサーバー、Yahoo!、Outlook などのメールアカウントを連携し、GeMo（ジェモ）にメールの確認・検索・送信を行わせることができます。
+          <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.5 }}>
+            会社の独自ドメインメールや、さくら、エックスサーバー、Yahoo!、Outlook などのメールアカウントを連携し、GeMo にメールの確認・検索・送信を行わせることができます。
           </p>
 
           {/* Accounts List */}
@@ -288,8 +312,8 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                     setTestResult(null);
                   }}
                   style={{
-                    background: 'var(--accent)',
-                    color: 'var(--on-accent)',
+                    background: '#4285F4',
+                    color: '#fff',
                     border: 'none',
                     borderRadius: '8px',
                     padding: '6px 14px',
@@ -301,7 +325,11 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                     gap: '6px'
                   }}
                 >
-                  ＋ アカウントを追加
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  アカウントを追加
                 </button>
               )}
             </div>
@@ -314,7 +342,7 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                 borderRadius: '12px',
                 border: '1px dashed var(--border2)',
                 color: 'var(--text3)',
-                fontSize: '13px'
+                fontSize: '12.5px'
               }}>
                 連携中の外部メールアカウントはありません。
               </div>
@@ -333,7 +361,7 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                         <span style={{ fontSize: '13px', fontWeight: 600 }}>{acc.label}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--accent)', background: 'rgba(45, 212, 191, 0.12)', padding: '2px 6px', borderRadius: '4px' }}>IMAP</span>
+                        <span style={{ fontSize: '10px', color: '#4285F4', background: 'rgba(66, 133, 244, 0.1)', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>IMAP</span>
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text2)' }}>{acc.email_address}</div>
                       <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
@@ -346,10 +374,10 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                       style={{
                         background: 'transparent',
                         border: '1px solid var(--border2)',
-                        color: '#EF4444',
+                        color: '#EA4335',
                         borderRadius: '6px',
-                        padding: '6px 10px',
-                        fontSize: '12px',
+                        padding: '5px 10px',
+                        fontSize: '11.5px',
                         cursor: 'pointer'
                       }}
                     >
@@ -368,17 +396,17 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
               padding: '18px',
               background: 'var(--bg)',
               borderRadius: '12px',
-              border: '1px solid var(--accent)',
+              border: '1px solid rgba(66, 133, 244, 0.3)',
               display: 'flex',
               flexDirection: 'column',
               gap: '14px'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--accent)' }}>新規外部メールの追加</span>
+                <span style={{ fontSize: '13.5px', fontWeight: 600, color: '#4285F4' }}>新規外部メールの追加</span>
                 <button
                   type="button"
                   onClick={() => setShowAddForm(false)}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: '13px' }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', fontSize: '12px' }}
                 >
                   キャンセル
                 </button>
@@ -386,7 +414,7 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
 
               {/* Preset Selector */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>
                   プロバイダ・プリセット
                 </label>
                 <select
@@ -399,7 +427,7 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                     border: '1px solid var(--border2)',
                     background: 'var(--panel)',
                     color: 'var(--text)',
-                    fontSize: '13px',
+                    fontSize: '12.5px',
                     outline: 'none'
                   }}
                 >
@@ -412,18 +440,18 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
               {/* Label & Email */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '10px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>表示ラベル</label>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>表示ラベル</label>
                   <input
                     type="text"
                     value={label}
                     onChange={(e) => setLabel(e.target.value)}
                     placeholder="例: 会社メール"
                     required
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--panel)', color: 'var(--text)', fontSize: '13px' }}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--panel)', color: 'var(--text)', fontSize: '12.5px' }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>メールアドレス</label>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>メールアドレス</label>
                   <input
                     type="email"
                     value={emailAddress}
@@ -433,7 +461,7 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                     }}
                     placeholder="name@company.co.jp"
                     required
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--panel)', color: 'var(--text)', fontSize: '13px' }}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--panel)', color: 'var(--text)', fontSize: '12.5px' }}
                   />
                 </div>
               </div>
@@ -441,24 +469,24 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
               {/* Username & Password */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>ユーザー名 (ログインID)</label>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>ユーザー名 (ログインID)</label>
                   <input
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="メールアドレスまたはID"
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--panel)', color: 'var(--text)', fontSize: '13px' }}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--panel)', color: 'var(--text)', fontSize: '12.5px' }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>パスワード</label>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text2)', marginBottom: '4px' }}>パスワード</label>
                   <input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--panel)', color: 'var(--text)', fontSize: '13px' }}
+                    style={{ width: '100%', padding: '7px 10px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--panel)', color: 'var(--text)', fontSize: '12.5px' }}
                   />
                 </div>
               </div>
@@ -468,7 +496,7 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAdvanced(prev => !prev)}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: '12px', padding: 0 }}
+                  style={{ background: 'transparent', border: 'none', color: '#4285F4', cursor: 'pointer', fontSize: '12px', padding: 0 }}
                 >
                   {showAdvanced ? '▼ サーバー詳細設定を閉じる' : '▶ サーバー詳細設定（ホスト・ポート番号）'}
                 </button>
@@ -531,16 +559,30 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                   padding: '10px 14px',
                   borderRadius: '8px',
                   fontSize: '12px',
-                  background: testResult.success ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-                  color: testResult.success ? '#22C55E' : '#EF4444',
-                  border: `1px solid ${testResult.success ? '#22C55E' : '#EF4444'}`
+                  background: testResult.success ? 'rgba(52, 168, 83, 0.1)' : 'rgba(234, 67, 53, 0.1)',
+                  color: testResult.success ? '#34A853' : '#EA4335',
+                  border: `1px solid ${testResult.success ? 'rgba(52, 168, 83, 0.25)' : 'rgba(234, 67, 53, 0.25)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}>
-                  {testResult.success ? `✅ ${testResult.message || '接続に成功しました！'}` : `❌ ${testResult.error}`}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    {testResult.success ? (
+                      <polyline points="20 6 9 17 4 12"/>
+                    ) : (
+                      <>
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </>
+                    )}
+                  </svg>
+                  {testResult.success ? (testResult.message || '接続に成功しました') : testResult.error}
                 </div>
               )}
 
               {submitError && (
-                <div style={{ padding: '8px 12px', borderRadius: '8px', fontSize: '12px', background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', border: '1px solid #EF4444' }}>
+                <div style={{ padding: '8px 12px', borderRadius: '8px', fontSize: '12px', background: 'rgba(234, 67, 53, 0.1)', color: '#EA4335', border: '1px solid rgba(234, 67, 53, 0.25)' }}>
                   {submitError}
                 </div>
               )}
@@ -556,24 +598,24 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
                     color: 'var(--text)',
                     border: '1px solid var(--border2)',
                     borderRadius: '8px',
-                    padding: '8px 16px',
-                    fontSize: '13px',
+                    padding: '7px 14px',
+                    fontSize: '12px',
                     fontWeight: 500,
                     cursor: 'pointer'
                   }}
                 >
-                  {testing ? '接続テスト中...' : '🔌 接続テスト'}
+                  {testing ? '接続テスト中...' : '接続テスト'}
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
                   style={{
-                    background: 'var(--accent)',
-                    color: 'var(--on-accent)',
+                    background: '#4285F4',
+                    color: '#fff',
                     border: 'none',
                     borderRadius: '8px',
-                    padding: '8px 20px',
-                    fontSize: '13px',
+                    padding: '7px 18px',
+                    fontSize: '12.5px',
                     fontWeight: 600,
                     cursor: 'pointer'
                   }}
