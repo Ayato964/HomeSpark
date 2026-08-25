@@ -31,6 +31,9 @@
       "public/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      ".next/**/*"
+    ],
     "extraResources": [
       {
         "from": "../lab_sales_spark_backend",
@@ -46,11 +49,15 @@
     ],
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "allowElevation": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "HomeSpark GeMo",
-      "uninstallDisplayName": "HomeSpark GeMo"
+      "uninstallDisplayName": "HomeSpark GeMo",
+      "deleteAppDataOnUninstall": false,
+      "language": "1041"
     },
     "win": {
       "target": [

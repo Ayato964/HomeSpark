@@ -13,15 +13,34 @@ import {
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
-import { spawn, spawnSync, execSync, ChildProcess } from "child_process";
+import { spawn, spawnSync, ChildProcess } from "child_process";
 import * as http from "http";
 import { autoUpdater } from "electron-updater";
+
+// Crash resilience: Catch any unexpected exceptions to prevent app freeze
+process.on("uncaughtException", (error) => {
+  console.error("[Electron Main] Uncaught Exception:", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[Electron Main] Unhandled Rejection:", reason);
+});
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 let overlayHideTimer: NodeJS.Timeout | null = null;
+
+// Prevent app from completely freezing on uncaught exceptions
+process.on("uncaughtException", (error) => {
+  console.error("[Electron] Uncaught Exception:", error);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[Electron] Unhandled Rejection at:", promise, "reason:", reason);
+});
+
 
 // Child processes for local backend, TTS, and frontend
 const spawnedProcesses: ChildProcess[] = [];
@@ -60,11 +79,11 @@ async function waitForPort(port: number, timeoutMs = 35000): Promise<boolean> {
   return false;
 }
 
-// Dynamically locate the workspace root folder
+// Dynamically locate the workspace root folder for development
 function findProjectRootDir(): string {
   const candidates = [
     path.resolve(__dirname, "../../"), // electron/dist/main.js -> root
-    path.resolve(process.resourcesPath, "../../../../"), // win-unpacked/resources -> root
+    path.resolve(process.resourcesPath, "../../../../"),
     path.resolve(process.resourcesPath, "../../../"),
     path.resolve(app.getAppPath(), "../../../../"),
     path.resolve(app.getAppPath(), "../../../"),
@@ -76,7 +95,7 @@ function findProjectRootDir(): string {
     const backendPy = path.join(candidate, "lab_sales_spark_backend", "server.py");
     const venvPy = path.join(candidate, "lab_sales_spark_backend", ".venv", "Scripts", "python.exe");
     if (fs.existsSync(backendPy) && fs.existsSync(venvPy)) {
-      console.log("[Electron] Found valid project root directory:", candidate);
+      console.log("[Electron] Found valid development project root:", candidate);
       return candidate;
     }
   }
@@ -84,7 +103,7 @@ function findProjectRootDir(): string {
   return "G:\\My_Project\\spark";
 }
 
-// Resolve backend directories and Python executable
+// Resolve backend directories and Python executable with ZERO shell dependency
 function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: string; frontendDir: string } {
   // 1. Check embedded production resources (All-in-One Standalone Package)
   if (process.resourcesPath) {
@@ -115,78 +134,91 @@ function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: s
   };
 }
 
-// Auto-start backend, TTS, and frontend services
+// Auto-start backend, TTS, and frontend services (Direct Binary Execution, shell: false)
 async function ensureAllServices() {
   const { backendDir, venvPython, ttsDir, frontendDir } = getBackendConfig();
 
-  // 1. Ensure Backend Server (port 8080)
+  // 1. Ensure Backend Server (FastAPI on port 8080)
   const backendAlive = await checkPortAlive(8080);
   if (!backendAlive) {
-    console.log("[Electron] Auto-starting FastAPI backend server (port 8080)...");
-    try {
-      const backendProc = spawn(
-        venvPython,
-        ["-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8080"],
-        {
-          cwd: backendDir,
-          stdio: "ignore",
-          detached: false,
-          shell: true,
-          windowsHide: true,
-        }
-      );
-      spawnedProcesses.push(backendProc);
-    } catch (e) {
-      console.error("[Electron] Failed to auto-start backend:", e);
+    if (fs.existsSync(venvPython)) {
+      console.log("[Electron] Auto-starting FastAPI backend directly without cmd.exe...");
+      try {
+        const backendProc = spawn(
+          venvPython,
+          ["-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8080"],
+          {
+            cwd: backendDir,
+            stdio: "ignore",
+            detached: false,
+            shell: false, // ZERO cmd.exe dependency
+            windowsHide: true,
+          }
+        );
+        backendProc.on("error", (err) => console.warn("[Backend Proc Error]:", err.message));
+        spawnedProcesses.push(backendProc);
+      } catch (e) {
+        console.error("[Electron] Failed to spawn backend:", e);
+      }
+    } else {
+      console.warn("[Electron] Python executable not found at:", venvPython);
     }
   } else {
-    console.log("[Electron] Backend server already running on port 8080.");
+    console.log("[Electron] Backend server already active on port 8080.");
   }
 
   // 2. Ensure Local TTS Engine (port 8008)
   const ttsAlive = await checkPortAlive(8008);
   if (!ttsAlive) {
-    console.log("[Electron] Auto-starting local TTS engine (port 8008)...");
-    try {
-      const ttsProc = spawn(venvPython, ["app_voice.py"], {
-        cwd: ttsDir,
-        stdio: "ignore",
-        detached: false,
-        shell: true,
-        windowsHide: true,
-      });
-      spawnedProcesses.push(ttsProc);
-    } catch (e) {
-      console.error("[Electron] Failed to auto-start TTS:", e);
+    const ttsScript = path.join(ttsDir, "app_voice.py");
+    if (fs.existsSync(venvPython) && fs.existsSync(ttsScript)) {
+      console.log("[Electron] Auto-starting local TTS engine directly without cmd.exe...");
+      try {
+        const ttsProc = spawn(venvPython, ["app_voice.py"], {
+          cwd: ttsDir,
+          stdio: "ignore",
+          detached: false,
+          shell: false, // ZERO cmd.exe dependency
+          windowsHide: true,
+        });
+        ttsProc.on("error", (err) => console.warn("[TTS Proc Error]:", err.message));
+        spawnedProcesses.push(ttsProc);
+      } catch (e) {
+        console.error("[Electron] Failed to spawn TTS:", e);
+      }
     }
   } else {
-    console.log("[Electron] TTS engine already running on port 8008.");
+    console.log("[Electron] TTS engine already active on port 8008.");
   }
 
-  // 3. Ensure Frontend Next.js Server (port 3000)
-  const frontendAlive = await checkPortAlive(3000);
-  if (!frontendAlive) {
-    console.log("[Electron] Auto-starting Next.js frontend server (port 3000)...");
-    try {
-      const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
-      const frontendProc = spawn(npxCmd, ["next", "start", "-p", "3000"], {
-        cwd: frontendDir,
-        stdio: "ignore",
-        detached: false,
-        shell: true,
-        windowsHide: true,
-      });
-      spawnedProcesses.push(frontendProc);
-    } catch (e) {
-      console.error("[Electron] Failed to auto-start frontend:", e);
+  // 3. Ensure Frontend Server (port 3000) for development mode
+  if (isDev) {
+    const frontendAlive = await checkPortAlive(3000);
+    if (!frontendAlive) {
+      console.log("[Electron] Development: Next.js dev server starting...");
+      try {
+        const nodeExe = process.execPath; // Use electron/node binary directly
+        const nextCli = path.join(frontendDir, "node_modules", "next", "dist", "bin", "next");
+        if (fs.existsSync(nextCli)) {
+          const frontendProc = spawn(nodeExe, [nextCli, "start", "-p", "3000"], {
+            cwd: frontendDir,
+            stdio: "ignore",
+            detached: false,
+            shell: false,
+            windowsHide: true,
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+          });
+          frontendProc.on("error", (err) => console.warn("[Frontend Proc Error]:", err.message));
+          spawnedProcesses.push(frontendProc);
+        }
+      } catch (e) {
+        console.error("[Electron] Failed to start dev frontend:", e);
+      }
     }
-  } else {
-    console.log("[Electron] Frontend server already running on port 3000.");
   }
 }
 
 function cleanupProcesses() {
-  // 1. Kill tracked spawned processes and their complete process trees
   for (const proc of spawnedProcesses) {
     try {
       if (proc.pid) {
@@ -200,19 +232,6 @@ function cleanupProcesses() {
       // ignore
     }
   }
-
-  // 2. Extra safety on Windows: Kill any lingering processes on ports 8080, 8008, 3000
-  if (process.platform === "win32") {
-    try {
-      execSync('for /f "tokens=5" %a in (\'netstat -aon ^| findstr :8080\') do taskkill /f /pid %a', { stdio: "ignore", windowsHide: true });
-    } catch {}
-    try {
-      execSync('for /f "tokens=5" %a in (\'netstat -aon ^| findstr :8008\') do taskkill /f /pid %a', { stdio: "ignore", windowsHide: true });
-    } catch {}
-    try {
-      execSync('for /f "tokens=5" %a in (\'netstat -aon ^| findstr :3000\') do taskkill /f /pid %a', { stdio: "ignore", windowsHide: true });
-    } catch {}
-  }
 }
 
 // Create fallback 16x16 / 32x32 colored tray icon if no png exists
@@ -225,7 +244,6 @@ function createDefaultTrayIcon(): NativeImage {
     // fallback
   }
 
-  // Create simple 16x16 SVG data URL icon
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
     <circle cx="8" cy="8" r="7" fill="#6366f1" />
     <path d="M8 4a2 2 0 0 0-2 2v2a2 2 0 0 0 4 0V6a2 2 0 0 0-2-2z" fill="#ffffff" />
@@ -241,19 +259,19 @@ async function createWindow() {
     minWidth: 960,
     minHeight: 640,
     title: "HomeSpark GeMo - 専属秘書GeMo",
-    frame: false, // Custom title bar
+    frame: false,
     titleBarStyle: "hidden",
     backgroundColor: "#0d0f17",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      backgroundThrottling: false, // Keep audio and websocket alive in background
+      backgroundThrottling: false,
     },
   });
 
-  // Wait for port 3000 to be ready before loading
-  await waitForPort(3000, 35000);
+  // Wait for frontend port or load
+  await waitForPort(3000, 25000);
 
   const loadWithRetry = (retries = 8) => {
     mainWindow?.loadURL(FRONTEND_URL).catch((err) => {
@@ -266,7 +284,6 @@ async function createWindow() {
 
   loadWithRetry();
 
-  // Window state listeners
   mainWindow.on("maximize", () => {
     mainWindow?.webContents.send("window-state-changed", true);
   });
@@ -274,7 +291,6 @@ async function createWindow() {
     mainWindow?.webContents.send("window-state-changed", false);
   });
 
-  // Minimize to tray instead of quitting on close button
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -303,7 +319,7 @@ function createOverlayWindow() {
     width: overlayWidth,
     height: overlayHeight,
     x: Math.round((width - overlayWidth) / 2),
-    y: height - overlayHeight - 20, // Bottom center above taskbar
+    y: height - overlayHeight - 20,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -329,7 +345,6 @@ function createOverlayWindow() {
     : path.join(__dirname, "overlay.html");
 
   overlayWindow.loadFile(overlayHtmlPath).catch(() => {
-    // fallback if path differs
     overlayWindow?.loadFile(path.join(__dirname, "overlay.html"));
   });
 
@@ -338,31 +353,26 @@ function createOverlayWindow() {
   });
 }
 
-// Setup auto-updater listeners
 function setupAutoUpdater() {
   autoUpdater.on("checking-for-update", () => {
-    console.log("[AutoUpdater] Checking for update...");
     mainWindow?.webContents.send("update-status", { status: "checking" });
   });
 
   autoUpdater.on("update-available", (info) => {
-    console.log("[AutoUpdater] Update available:", info.version);
     mainWindow?.webContents.send("update-status", { status: "available", version: info.version });
     if (Notification.isSupported()) {
       new Notification({
         title: "🎉 新しいバージョンが見つかりました",
-        body: `HomeSpark GeMo v${info.version} をバックグラウンドでダウンロードしています...`,
+        body: `HomeSpark GeMo v${info.version} をダウンロードしています...`,
       }).show();
     }
   });
 
-  autoUpdater.on("update-not-available", (info) => {
-    console.log("[AutoUpdater] Update not available. Current version is latest.");
+  autoUpdater.on("update-not-available", () => {
     mainWindow?.webContents.send("update-status", { status: "not-available" });
   });
 
   autoUpdater.on("download-progress", (progressObj) => {
-    console.log(`[AutoUpdater] Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
     mainWindow?.webContents.send("update-status", {
       status: "downloading",
       percent: Math.round(progressObj.percent),
@@ -370,7 +380,6 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
-    console.log("[AutoUpdater] Update downloaded:", info.version);
     mainWindow?.webContents.send("update-status", { status: "downloaded", version: info.version });
     if (Notification.isSupported()) {
       new Notification({
@@ -381,7 +390,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on("error", (err) => {
-    console.warn("[AutoUpdater] Error during update check:", err?.message);
+    console.warn("[AutoUpdater Error]:", err?.message);
     mainWindow?.webContents.send("update-status", { status: "error", error: err?.message });
   });
 }
@@ -455,7 +464,6 @@ function createTray() {
   });
 }
 
-// IPC Handlers
 function setupIPC() {
   ipcMain.on("window-minimize", () => {
     mainWindow?.minimize();
@@ -487,7 +495,6 @@ function setupIPC() {
     }
   });
 
-  // Auto-updater IPC triggers
   ipcMain.on("check-for-updates", () => {
     if (!isDev) {
       autoUpdater.checkForUpdates().catch((err) => {
@@ -504,7 +511,6 @@ function setupIPC() {
     autoUpdater.quitAndInstall(false, true);
   });
 
-  // Handle Subtitle updates from renderer process
   ipcMain.on("update-subtitle", (_event, subtitle) => {
     if (overlayHideTimer) {
       clearTimeout(overlayHideTimer);
@@ -543,7 +549,6 @@ app.whenReady().then(async () => {
   await createWindow();
   createOverlayWindow();
 
-  // Register Global Shortcut (Ctrl + Alt + J / Cmd + Alt + J)
   globalShortcut.register("CommandOrControl+Alt+J", () => {
     if (mainWindow) {
       if (mainWindow.isVisible() && mainWindow.isFocused()) {
@@ -555,11 +560,10 @@ app.whenReady().then(async () => {
     }
   });
 
-  // Check for updates on launch in packaged mode
   if (!isDev) {
     setTimeout(() => {
       autoUpdater.checkForUpdatesAndNotify().catch((e) => {
-        console.warn("[AutoUpdater] Launch check error:", e?.message);
+        console.warn("[AutoUpdater Launch]:", e?.message);
       });
     }, 4000);
   }
@@ -586,7 +590,5 @@ app.on("before-quit", () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    // Keep running in tray on Windows/Linux
-  }
+  // Keep running in tray
 });
