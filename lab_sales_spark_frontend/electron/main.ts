@@ -11,6 +11,7 @@ import {
   screen,
 } from "electron";
 import * as path from "path";
+import * as fs from "fs";
 import { spawn, ChildProcess } from "child_process";
 import * as http from "http";
 
@@ -20,7 +21,7 @@ let tray: Tray | null = null;
 let isQuitting = false;
 let overlayHideTimer: NodeJS.Timeout | null = null;
 
-// Child processes for local backend and TTS
+// Child processes for local backend, TTS, and frontend
 const spawnedProcesses: ChildProcess[] = [];
 
 const isDev = process.env.NODE_ENV !== "production" || !app.isPackaged;
@@ -43,36 +44,51 @@ function checkPortAlive(port: number): Promise<boolean> {
 }
 
 // Wait until a port is open
-async function waitForPort(port: number, timeoutMs = 25000): Promise<boolean> {
+async function waitForPort(port: number, timeoutMs = 35000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const isAlive = await checkPortAlive(port);
     if (isAlive) return true;
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 400));
   }
   return false;
 }
 
-// Auto-start frontend and backend services
+// Dynamically locate the workspace root folder
+function findProjectRootDir(): string {
+  const candidates = [
+    path.resolve(__dirname, "../../"), // electron/dist/main.js -> root
+    path.resolve(process.resourcesPath, "../../../../"), // win-unpacked/resources -> root
+    path.resolve(process.resourcesPath, "../../../"),
+    path.resolve(app.getAppPath(), "../../../../"),
+    path.resolve(app.getAppPath(), "../../../"),
+    process.cwd(),
+    "G:\\My_Project\\spark",
+  ];
+
+  for (const candidate of candidates) {
+    const backendPy = path.join(candidate, "lab_sales_spark_backend", "server.py");
+    const venvPy = path.join(candidate, "lab_sales_spark_backend", ".venv", "Scripts", "python.exe");
+    if (fs.existsSync(backendPy) && fs.existsSync(venvPy)) {
+      console.log("[Electron] Found valid project root directory:", candidate);
+      return candidate;
+    }
+  }
+
+  return "G:\\My_Project\\spark";
+}
+
+// Auto-start backend, TTS, and frontend services
 async function ensureAllServices() {
-  const rootDir = isDev
-    ? path.resolve(__dirname, "../../")
-    : path.resolve(process.resourcesPath, "../../../");
-
-  const frontendDir = isDev
-    ? path.resolve(__dirname, "../")
-    : path.resolve(rootDir, "lab_sales_spark_frontend");
-
-  const backendDir = isDev
-    ? path.join(rootDir, "lab_sales_spark_backend")
-    : path.join(rootDir, "lab_sales_spark_backend");
-
+  const rootDir = findProjectRootDir();
+  const backendDir = path.join(rootDir, "lab_sales_spark_backend");
+  const frontendDir = path.join(rootDir, "lab_sales_spark_frontend");
   const venvPython = path.join(backendDir, ".venv", "Scripts", "python.exe");
 
   // 1. Ensure Backend Server (port 8080)
   const backendAlive = await checkPortAlive(8080);
   if (!backendAlive) {
-    console.log("[Electron] Starting local backend server (port 8080)...");
+    console.log("[Electron] Auto-starting FastAPI backend server (port 8080)...");
     try {
       const backendProc = spawn(
         venvPython,
@@ -82,6 +98,7 @@ async function ensureAllServices() {
           stdio: "ignore",
           detached: false,
           shell: true,
+          windowsHide: true,
         }
       );
       spawnedProcesses.push(backendProc);
@@ -95,7 +112,7 @@ async function ensureAllServices() {
   // 2. Ensure Local TTS Engine (port 8008)
   const ttsAlive = await checkPortAlive(8008);
   if (!ttsAlive) {
-    console.log("[Electron] Starting local TTS engine (port 8008)...");
+    console.log("[Electron] Auto-starting local TTS engine (port 8008)...");
     try {
       const ttsDir = path.join(backendDir, "Irodori-TTS-Lite");
       const ttsProc = spawn(venvPython, ["app_voice.py"], {
@@ -103,6 +120,7 @@ async function ensureAllServices() {
         stdio: "ignore",
         detached: false,
         shell: true,
+        windowsHide: true,
       });
       spawnedProcesses.push(ttsProc);
     } catch (e) {
@@ -115,7 +133,7 @@ async function ensureAllServices() {
   // 3. Ensure Frontend Next.js Server (port 3000)
   const frontendAlive = await checkPortAlive(3000);
   if (!frontendAlive) {
-    console.log("[Electron] Starting Next.js frontend server (port 3000)...");
+    console.log("[Electron] Auto-starting Next.js frontend server (port 3000)...");
     try {
       const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
       const frontendProc = spawn(npxCmd, ["next", "start", "-p", "3000"], {
@@ -123,6 +141,7 @@ async function ensureAllServices() {
         stdio: "ignore",
         detached: false,
         shell: true,
+        windowsHide: true,
       });
       spawnedProcesses.push(frontendProc);
     } catch (e) {
@@ -138,7 +157,7 @@ function cleanupProcesses() {
     try {
       if (proc.pid) {
         if (process.platform === "win32") {
-          spawn("taskkill", ["/pid", proc.pid.toString(), "/f", "/t"]);
+          spawn("taskkill", ["/pid", proc.pid.toString(), "/f", "/t"], { windowsHide: true });
         } else {
           proc.kill("SIGTERM");
         }
@@ -187,9 +206,9 @@ async function createWindow() {
   });
 
   // Wait for port 3000 to be ready before loading
-  await waitForPort(3000, 25000);
+  await waitForPort(3000, 35000);
 
-  const loadWithRetry = (retries = 5) => {
+  const loadWithRetry = (retries = 8) => {
     mainWindow?.loadURL(FRONTEND_URL).catch((err) => {
       console.warn(`[Electron] loadURL failed (${retries} retries left):`, err);
       if (retries > 0) {
