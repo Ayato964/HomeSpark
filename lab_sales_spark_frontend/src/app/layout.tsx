@@ -3,7 +3,7 @@ import "./globals.css";
 import { TitleBar } from "../components/TitleBar";
 
 export const metadata: Metadata = {
-  title: "HomeSpark | 専属秘書ジェニー",
+  title: "HomeSpark GeMo | 専属秘書GeMo（ジェモ）",
   description: "次世代型AI秘書・音声リアルタイム対話プラットフォーム",
 };
 

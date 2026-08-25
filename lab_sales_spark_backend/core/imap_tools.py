@@ -1,7 +1,7 @@
 """IMAP and SMTP external mail processing engine and tools for Sales Spark.
 
 Allows users to connect their corporate/external email accounts (e.g. Sakura, XServer,
-Yahoo!, Outlook, or custom domain mail servers) to read, search, and send emails via Jenny.
+Yahoo!, Outlook, or custom domain mail servers) to read, search, and send emails via GeMo.
 """
 from __future__ import annotations
 

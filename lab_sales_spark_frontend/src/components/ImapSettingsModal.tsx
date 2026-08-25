@@ -274,7 +274,7 @@ export const ImapSettingsModal: React.FC<ImapSettingsModalProps> = ({
         {/* Content */}
         <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text2)', lineHeight: 1.5 }}>
-            会社の独自ドメインメールや、さくら、エックスサーバー、Yahoo!、Outlook などのメールアカウントを連携し、ジェニーにメールの確認・検索・送信を行わせることができます。
+            会社の独自ドメインメールや、さくら、エックスサーバー、Yahoo!、Outlook などのメールアカウントを連携し、GeMo（ジェモ）にメールの確認・検索・送信を行わせることができます。
           </p>
 
           {/* Accounts List */}

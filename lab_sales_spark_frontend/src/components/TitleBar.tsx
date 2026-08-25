@@ -71,7 +71,7 @@ export function TitleBar() {
             fontFamily: "'IBM Plex Mono', monospace",
           }}
         >
-          HomeSpark
+          HomeSpark GeMo
         </span>
         <span
           style={{
@@ -83,7 +83,7 @@ export function TitleBar() {
             border: "1px solid var(--border)",
           }}
         >
-          🎀 専属秘書ジェニー (常駐中)
+          🎀 専属秘書GeMo (常駐中)
         </span>
       </div>
 

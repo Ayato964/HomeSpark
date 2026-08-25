@@ -88,12 +88,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div style={{ padding: '20px 18px 18px', display: 'flex', alignItems: 'center', gap: '11px' }}>
         <span style={{ width: '18px', height: '18px', background: 'var(--accent)', flex: 'none' }}></span>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '16px', fontWeight: 600, letterSpacing: '.14em' }}>SALES SPARK</span>
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9px', fontWeight: 500, color: 'var(--accent)', letterSpacing: '.05em' }}>ver.2.0</span>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '15px', fontWeight: 600, letterSpacing: '.10em' }}>HOMESPARK</span>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo ver.3.0</span>
         </div>
       </div>
 
-      {/* App Mode Switcher (Chat / Spark) */}
+      {/* App Mode Switcher (Chat / GeMo) */}
       {user && (
         <div style={{ padding: '0 14px 12px' }}>
           <div style={{
@@ -146,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 gap: '5px'
               }}
             >
-              <span>✨</span> Spark (秘書)
+              <span>✨</span> GeMo (秘書)
             </button>
           </div>
         </div>

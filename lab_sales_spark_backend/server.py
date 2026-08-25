@@ -134,7 +134,7 @@ async def summarize_memory_endpoint(
     lines = []
     for msg in req.history:
         role = msg.get("role", "unknown")
-        speaker = "ユーザー" if role == "user" else "ジェニー(AI)"
+        speaker = "ユーザー" if role == "user" else "GeMo(AI)"
         content = msg.get("content", "")
         if isinstance(content, list):
             content = " ".join([item.get("text", "") for item in content if isinstance(item, dict)])
@@ -145,7 +145,7 @@ async def summarize_memory_endpoint(
 
     summary_instruction = (
         "あなたは会話ログから今後の対話や業務に役立つ構造化された議事録（Markdown形式）を作成する専門AIです。\n"
-        "以下のユーザーとジェニー（アシスタント）の会話内容を読み、今後の対話で参照すべき重要な記憶・議事録を簡潔にまとめてください。\n\n"
+        "以下のユーザーとGeMo（アシスタント）の会話内容を読み、今後の対話で参照すべき重要な記憶・議事録を簡潔にまとめてください。\n\n"
         "【議事録に含める項目】\n"
         "- 📌 主な話題・会話の要約\n"
         "- 🎯 決定事項・合意内容\n"

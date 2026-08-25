@@ -1,7 +1,7 @@
 """Conversation Classifier Subagent.
 
 Determines:
-1. Whether user speech is explicitly addressed to the AI assistant ("Jenny") when is_conv is False.
+1. Whether user speech is explicitly addressed to the AI assistant ("GeMo") when is_conv is False.
 2. Whether the assistant response marks the end of the conversation topic to reset is_conv to False.
 """
 from __future__ import annotations
@@ -10,9 +10,9 @@ import re
 from typing import Optional
 from .llm_client import OpenAICompatClient
 
-# Explicit wake words & task commands that definitively address Jenny
+# Explicit wake words & task commands that definitively address GeMo
 FAST_WAKE_PATTERNS = [
-    r'(ジェニー|じぇにー|Jenny|ねえジェニー|ねぇジェニー|秘書|アシスタント)',
+    r'(GeMo|gemo|GEMO|ジェモ|じぇも|ねえジェモ|ねぇジェモ|ジェニー|じぇにー|Jenny|秘書|アシスタント)',
     r'(予定(を|は|確認|教えて|入って|追加|作成)|スケジュール(を|は|確認|教えて))',
     r'(天気(を|は|教えて|どう|予報)|気温(を|は|教えて))',
     r'(メール(を|は|確認|送って|送信|検索|チェック))',
@@ -47,10 +47,10 @@ def classify_is_addressing_ai(text: str, last_ai_response: Optional[str] = None)
     context_info = f" (直前のAI応答: 「{last_ai_response}」)" if last_ai_response else ""
     prompt = f"""判定対象の発話: 「{clean_text}」{context_info}
 
-この発話がAIアシスタント（秘書「ジェニー」）への【明確な呼びかけ・命令・質問・依頼】であるかを厳格に判定してください。
+この発話がAIアシスタント（秘書「GeMo（ジェモ）」）への【明確な呼びかけ・命令・質問・依頼】であるかを厳格に判定してください。
 
 【AI宛て (true) の条件】
-- AIに対する呼びかけ（「ジェニー」「ねえ」など）が含まれている
+- AIに対する呼びかけ（「GeMo」「ジェモ」「ねえ」など）が含まれている
 - または、明確にAIの機能（予定・メール・天気・名刺・検索・タスク）を依頼・指示・質問している
 
 【非AI宛て (false) の条件】

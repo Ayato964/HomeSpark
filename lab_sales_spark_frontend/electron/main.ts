@@ -131,7 +131,7 @@ function createWindow() {
     height: 880,
     minWidth: 960,
     minHeight: 640,
-    title: "HomeSpark - 専属秘書ジェニー",
+    title: "HomeSpark GeMo - 専属秘書GeMo",
     frame: false, // Custom title bar
     titleBarStyle: "hidden",
     backgroundColor: "#0d0f17",
@@ -164,8 +164,8 @@ function createWindow() {
       mainWindow?.hide();
       if (Notification.isSupported()) {
         new Notification({
-          title: "HomeSpark 常駐中",
-          body: "ジェニーはバックグラウンドで待機しています。Ctrl+Alt+J またはタスクバーのアイコンからいつでも呼び出せます。",
+          title: "HomeSpark GeMo 常駐中",
+          body: "GeMo（ジェモ）はバックグラウンドで待機しています。Ctrl+Alt+J またはタスクバーのアイコンからいつでも呼び出せます。",
         }).show();
       }
     }
@@ -224,11 +224,11 @@ function createOverlayWindow() {
 function createTray() {
   const icon = createDefaultTrayIcon();
   tray = new Tray(icon);
-  tray.setToolTip("HomeSpark - 専属秘書ジェニー (待機中)");
+  tray.setToolTip("HomeSpark GeMo - 専属秘書GeMo (待機中)");
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "🎙️ ジェニーを開く (Ctrl+Alt+J)",
+      label: "🎙️ GeMoを開く (Ctrl+Alt+J)",
       click: () => {
         if (mainWindow) {
           mainWindow.show();

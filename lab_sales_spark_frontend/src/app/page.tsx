@@ -1086,7 +1086,7 @@ export default function Home() {
       }}>
         {/* Top Header to preserve layout & format */}
         <div style={{ display: 'flex', alignItems: 'center', justifySelf: 'stretch', height: '54px', padding: '0 22px', borderBottom: '1px solid var(--border)', background: 'var(--topbar)', backdropFilter: 'blur(10px)' }}>
-          <span style={{ fontSize: '14px', fontWeight: 600 }}>Sales Spark - 初期設定</span>
+          <span style={{ fontSize: '14px', fontWeight: 600 }}>HomeSpark GeMo - 初期設定</span>
         </div>
 
         <div style={{
@@ -1567,7 +1567,7 @@ export default function Home() {
         <main style={{ position: 'relative', zIndex: 1, flex: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
           {/* Top Header to preserve layout & format */}
           <div style={{ display: 'flex', alignItems: 'center', justifySelf: 'stretch', height: '54px', padding: '0 22px', borderBottom: '1px solid var(--border)', background: 'var(--topbar)', backdropFilter: 'blur(10px)' }}>
-            <span style={{ fontSize: '14px', fontWeight: 600 }}>Sales Spark</span>
+            <span style={{ fontSize: '14px', fontWeight: 600 }}>HomeSpark GeMo</span>
             <div style={{ marginLeft: 'auto', display: 'flex', border: '1px solid var(--border2)', borderRadius: '18px', overflow: 'hidden' }}>
               <button onClick={() => setTheme('light')} title="ライト" style={{ width: '34px', height: '30px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme === 'light' ? 'var(--accent)' : 'transparent', color: theme === 'light' ? 'var(--on-accent)' : 'var(--text3)' }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
@@ -1617,10 +1617,10 @@ export default function Home() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text)', margin: 0, letterSpacing: '-0.02em' }}>
-                  Sales Spark へようこそ
+                  HomeSpark GeMo へようこそ
                 </h1>
                 <p style={{ fontSize: '13.5px', color: 'var(--text2)', lineHeight: 1.6, margin: 0 }}>
-                  Sales Sparkは、LP構成案、週次レポート作成、API設計、GoogleカレンダーやGmail連携によるスケジュール調整などを自動化する優秀なビジネスAIアシスタントです。
+                  HomeSpark GeMoは、専属秘書「GeMo（ジェモ）」がスケジュール管理、メール送受信、デジタル名刺管理、リアルタイムWeb検索などを全力でサポートする次世代型AIプラットフォームです。
                 </p>
               </div>
 
@@ -1739,7 +1739,7 @@ export default function Home() {
                 animation: subtitle.sender !== 'status' ? 'pulse 1.5s infinite alternate' : 'none'
               }}></span>
               <span style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255, 255, 255, 0.6)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                {subtitle.sender === 'user' ? 'あなた' : (subtitle.sender === 'ai' ? 'Jenny' : 'ステータス')}
+                {subtitle.sender === 'user' ? 'あなた' : (subtitle.sender === 'ai' ? 'GeMo' : 'ステータス')}
               </span>
               {realtimeCallEnabled && (
                 <span style={{
