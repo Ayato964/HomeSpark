@@ -669,4 +669,34 @@ export class ChatService {
       throw new Error(`Failed to delete IMAP account: ${response.status}`);
     }
   }
+
+  /** Get active storage mode ('cloud' | 'local'). */
+  public async getStorageMode(): Promise<'cloud' | 'local'> {
+    try {
+      const response = await fetch(`${this.backendUrl}/api/settings/storage-mode`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.storage_mode === 'local' ? 'local' : 'cloud';
+      }
+    } catch {
+      // fallback
+    }
+    return 'cloud';
+  }
+
+  /** Switch active storage mode ('cloud' | 'local'). */
+  public async setStorageMode(mode: 'cloud' | 'local'): Promise<{ status: string; storage_mode: string }> {
+    const response = await fetch(`${this.backendUrl}/api/settings/storage-mode`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ storage_mode: mode }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to switch storage mode: ${response.status}`);
+    }
+    return response.json();
+  }
 }

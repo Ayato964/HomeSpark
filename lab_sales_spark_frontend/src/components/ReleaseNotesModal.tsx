@@ -74,6 +74,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
             </div>
             <ul style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text2)', lineHeight: 1.6 }}>
               <li><strong>🖥️ デスクトップアプリ版（Electron / Chromium）＆ Web版 両立システム</strong>: タスクバー右下のシステムトレイ常駐、グローバルショートカット（`Ctrl + Alt + J` / `Cmd + Alt + J`）による即時ウィンドウ呼び出し、ローカル Python / TTS プロセスの自動起動・終了ライフサイクル管理、専用タイトルバーを備えたデスクトップアプリ版を新設。Webブラウザ版としても100%同一コードでそのまま稼働します。</li>
+              <li><strong>💾 オブジェクト指向 Storage 切替システム（デスクトップ専用）</strong>: 設定画面から「💻 ローカル保存 (SQLite: `homespark_local.db`)」と「☁️ クラウド保存 (PostgreSQL: Neon)」をワンクリックで動的切替可能に。ローカル保存ではクラウドを介さずPC内だけで完全プライベート・超高速に会話・記憶・名刺データを保存できます。</li>
               <li><strong>💬 デスクトップ最前面・常駐字幕オーバーレイ（HUD Overlay ピル）</strong>: トレイ格納中や別作業（ブラウザ、Excel、ゲーム等）をしていても、GeMoと話すと画面最下部の中央に半透明の字幕ピルがスッと浮き上がり、リアルタイムに会話内容を表示。クリック透過で作業を一切邪魔せず、発話終了後に自動でフェードアウトします。</li>
               <li><strong>🎙️ リアルタイム呼び出しモード（常時音声会話 & ミュート切替）</strong>: サイドバー設定からOnにすることで、画面遷移を問わず常に手ぶらで話しかけられる常駐音声会話モードを新設。マイクボタンはワンタップで「ミュート / ミュート解除」に切り替わります。</li>
               <li><strong>🎀 専属秘書ペルソナ「GeMo（ジェモ）」の誕生</strong>: チャット・音声会話の全システムプロンプトおよび即時相槌プリセットに、専属秘書「GeMo（ジェモ）（萌え萌えでしっかり者、アニメのような豊かなリアクション）」を統合しました。</li>

@@ -747,6 +747,30 @@ async def google_auth_disconnect(authorization: Optional[str] = Header(None)):
     return {"status": "ok"}
 
 
+class StorageModeRequest(BaseModel):
+    storage_mode: str  # 'cloud' | 'local'
+
+
+@app.get("/api/settings/storage-mode")
+async def get_storage_mode():
+    """Get current storage mode ('cloud' or 'local')."""
+    from core.store import get_storage_manager
+    manager = get_storage_manager()
+    return {"storage_mode": manager.mode}
+
+
+@app.post("/api/settings/storage-mode")
+async def set_storage_mode(req: StorageModeRequest):
+    """Switch storage mode ('cloud' or 'local')."""
+    from core.store import get_storage_manager
+    manager = get_storage_manager()
+    try:
+        manager.set_mode(req.storage_mode)
+        return {"status": "ok", "storage_mode": manager.mode}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 class AnalyzeEventRequest(BaseModel):
     event_id: str
     summary: Optional[str] = None

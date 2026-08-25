@@ -57,11 +57,9 @@ sessions/*.json
 *.exe
 *.war
 
-# Large media files
-*.mp4
-*.tiff
-*.avi
-*.flv
-*.mov
-*.wmv
+# Local SQLite databases
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
 

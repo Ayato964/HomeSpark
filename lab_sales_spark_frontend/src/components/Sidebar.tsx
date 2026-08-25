@@ -20,6 +20,7 @@ interface SidebarProps {
   onOpenReleaseNotes: () => void;
   onOpenProfile?: () => void;
   onOpenImapSettings?: () => void;
+  onOpenSettings?: () => void;
   userMenuRef: React.RefObject<HTMLDivElement | null>;
   appMode?: 'chat' | 'spark';
   onChangeAppMode?: (mode: 'chat' | 'spark') => void;
@@ -49,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenReleaseNotes,
   onOpenProfile,
   onOpenImapSettings,
+  onOpenSettings,
   userMenuRef,
   appMode = 'chat',
   onChangeAppMode,
@@ -471,6 +473,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
                 <span>📧</span> 外部メール連携 (IMAP)
+              </button>
+            )}
+            {onOpenSettings && (
+              <button
+                onClick={() => {
+                  onOpenSettings();
+                  onToggleUserMenu();
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text)',
+                  fontFamily: 'inherit',
+                  fontSize: '12.5px',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'background 0.2s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <span>⚙️</span> 環境設定 (保存先切替など)
               </button>
             )}
             {user && (

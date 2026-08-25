@@ -9,6 +9,7 @@ import { SparkDesk } from "../components/SparkDesk";
 import { DigitalBusinessCardView } from "../components/spark/DigitalBusinessCardView";
 import { ReleaseNotesModal } from "../components/ReleaseNotesModal";
 import { ImapSettingsModal } from "../components/ImapSettingsModal";
+import { SettingsModal } from "../components/SettingsModal";
 import { UserProfile } from "../types/chat";
 import { ChatService } from "../services/ChatService";
 import { getToken, loginQuick } from "../services/auth";
@@ -97,6 +98,7 @@ export default function Home() {
   const [userMenuOpen, setUserMenuOpen] = useState<boolean>(false);
   const [releaseNotesOpen, setReleaseNotesOpen] = useState<boolean>(false);
   const [isImapSettingsOpen, setIsImapSettingsOpen] = useState<boolean>(false);
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
 
   // User Profile States
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -1503,6 +1505,7 @@ export default function Home() {
         onOpenReleaseNotes={() => setReleaseNotesOpen(true)}
         onOpenProfile={handleOpenProfileEditor}
         onOpenImapSettings={() => setIsImapSettingsOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         userMenuRef={userMenuRef}
         isVoiceCallActive={isVoiceCallActive}
         onToggleVoiceCall={() => setIsVoiceCallActive(prev => !prev)}
@@ -1943,6 +1946,10 @@ export default function Home() {
         isOpen={isImapSettingsOpen}
         onClose={() => setIsImapSettingsOpen(false)}
         token={token}
+      />
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
 
       <style>{`
