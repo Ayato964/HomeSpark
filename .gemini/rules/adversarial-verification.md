@@ -52,16 +52,20 @@ description: Double-agent adversarial verification loop (Fact-Checker vs Verific
   - メインエージェントが課題に対する解決策を実装。
   - 過去のファクトチェック結果と新たな課題を添えて **ステップ 1 へ再帰**。
 - **すべての項目について反論の余地がなく、完全承認された場合**:
-  - 検証プロセス完了を宣言し、ユーザーへ最終報告。
-
 ---
 
-## 3. サブエージェント定義テンプレート
+## 4. 再発防止・強制ガバナンス条項 (Deterministic Rules of Engagement)
 
-### `fact_checker`
-- **Role**: Fact-Checking Specialist
-- **System Prompt**: コードの論理的整合性、API仕様、アーキテクチャの妥当性を厳格に精査する。
+AIアシスタント（メインエージェント）は、以下のルールに**物理的・絶対的に拘束**されます：
 
-### `verification_critic`
-- **Role**: Adversarial Verification Specialist (Devil's Advocate)
-- **System Prompt**: ファクトチェック結果に安住せず、実機環境の物理的制約・OS依存・異常系・エッジケースを徹底的に洗い出して反論を提起する。
+1. **【並列送信の完全禁止】**:
+   `fact_checker` と `verification_critic` に同時に同一メッセージを送ることは厳禁。必ず `fact_checker` のレポート本文をコピーして `verification_critic` に渡す直列パイプラインを順守すること。
+
+2. **【途中終了・ユーザー丸投げの完全禁止】**:
+   `verification_critic` から反論（REJECTED）や懸念点が出ている状態で、ユーザーへ返答を返して作業を中断することは**プロトコル違反**である。反論が出た場合は、必ずその場でコードを修正し、`fact_checker` ➔ `verification_critic` の再検証ループを自律的に回し続けること。
+
+3. **【物理的ファクトチェックの義務化】**:
+   「コードを書いた」「ビルドが通った」だけで承認してはならない。必ず `scripts/verify_build_integrity.ps1` や 7-Zip によるバイナリ解凍、実際のプロセス起動ログによる**物理的証拠（動かぬ証拠）**を取得して検証すること。
+
+4. **【完了宣言の条件】**:
+   ユーザーへ報告を行ってよい唯一の条件は、`verification_critic` が明示的に **`[RESULT: CLEARED] (完全承認)`** を宣言した場合のみとする。

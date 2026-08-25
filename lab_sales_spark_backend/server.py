@@ -687,10 +687,11 @@ async def delete_chat_endpoint(chat_id: str, authorization: Optional[str] = Head
 _OAUTH_NONCE_COOKIE = "spark_oauth_nonce"
 _COOKIE_SECURE = GOOGLE_OAUTH_REDIRECT_URI.startswith("https")
 
+# In-memory transient store for desktop browser OAuth handshake (TTL 120s)
+_PENDING_OAUTH_SESSIONS: Dict[str, dict] = {}
+
 
 def _frontend_redirect(fragment: str) -> RedirectResponse:
-    # Session token goes in the URL fragment (#) so it is never sent to servers
-    # or written to access logs / Referer headers.
     return RedirectResponse(f"{FRONTEND_URL}#{fragment}")
 
 
@@ -698,13 +699,10 @@ def _frontend_redirect(fragment: str) -> RedirectResponse:
 async def auth_login():
     """Start login: redirect the browser to Google's consent screen."""
     if not google_oauth.is_configured():
-        # Fallback gracefully for local desktop app usage
         session = make_session(
             "local-user-ayato", "ayato.yofukashi@gmail.com", "Ayato (Local User)"
         )
         return _frontend_redirect(f"session={session}")
-    # Bind this login to the browser: a random nonce lives both in the signed
-    # state and in an HttpOnly cookie; the callback requires them to match.
     nonce = secrets.token_urlsafe(24)
     try:
         url = google_oauth.build_login_url(nonce)
@@ -726,6 +724,24 @@ async def auth_login():
     return resp
 
 
+@app.get("/api/auth/session/poll")
+async def poll_oauth_session():
+    """Poll for the most recent completed OAuth session from the desktop app."""
+    now = time.time()
+    # Clean up expired tokens (> 300s / 5 minutes)
+    expired_keys = [k for k, v in _PENDING_OAUTH_SESSIONS.items() if now - v.get("ts", 0) > 300]
+    for k in expired_keys:
+        _PENDING_OAUTH_SESSIONS.pop(k, None)
+
+    if not _PENDING_OAUTH_SESSIONS:
+        return {"ready": False}
+
+    # Grab the newest session
+    newest_key = max(_PENDING_OAUTH_SESSIONS.keys(), key=lambda k: _PENDING_OAUTH_SESSIONS[k]["ts"])
+    data = _PENDING_OAUTH_SESSIONS.pop(newest_key)
+    return {"ready": True, "session": data["session"]}
+
+
 @app.get("/api/auth/google/callback")
 async def google_auth_callback(
     code: Optional[str] = None,
@@ -733,23 +749,103 @@ async def google_auth_callback(
     error: Optional[str] = None,
     spark_oauth_nonce: Optional[str] = Cookie(None),
 ):
-    """OAuth redirect target. Verifies identity (and the browser-bound nonce),
-    mints a session, and bounces back to the frontend with the session token in
-    the URL fragment."""
+    """OAuth redirect target. Verifies identity, mints session, stores for desktop polling,
+    and returns a clean confirmation page for the external browser."""
     if error or not code or not state:
-        return _frontend_redirect("login_error=1")
+        return HTMLResponse(
+            "<html><body style='font-family:sans-serif;background:#0d0f17;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;'><div style='text-align:center;background:#1a1d26;padding:32px;border-radius:16px;border:1px solid #ef4444;'><h2 style='color:#ef4444;'>認証エラーが発生しました</h2><p>Googleへのサインインがキャンセルされたか失敗しました。アプリに戻り再試行してください。</p></div></body></html>",
+            status_code=400,
+        )
     try:
         identity = google_oauth.exchange_code_for_login(code, state, spark_oauth_nonce)
     except google_oauth.GoogleIntegrationError as e:
-        print(f"Google login callback failed: {e}")
-        return _frontend_redirect("login_error=1")
+        logger.error(f"Google login callback failed: {e}")
+        return HTMLResponse(
+            f"<html><body style='font-family:sans-serif;background:#0d0f17;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;'><div style='text-align:center;background:#1a1d26;padding:32px;border-radius:16px;border:1px solid #ef4444;'><h2 style='color:#ef4444;'>認証に失敗しました</h2><p>{str(e)}</p></div></body></html>",
+            status_code=400,
+        )
     session = make_session(
         identity["sub"],
         identity.get("email"),
         identity.get("name"),
         identity.get("picture"),
     )
-    resp = _frontend_redirect(f"session={session}")
+
+    # Store for desktop app polling
+    session_id = secrets.token_urlsafe(16)
+    _PENDING_OAUTH_SESSIONS[session_id] = {
+        "session": session,
+        "ts": time.time(),
+    }
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HomeSpark GeMo - Google認証完了</title>
+  <style>
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d0f17;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }}
+    .card {{
+      background: #161922;
+      border: 1px solid rgba(66, 133, 244, 0.4);
+      padding: 40px;
+      border-radius: 20px;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+      max-width: 440px;
+    }}
+    .icon {{
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 20px;
+      background: rgba(66, 133, 244, 0.15);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #4285F4;
+    }}
+    h2 {{ margin: 0 0 10px; font-size: 22px; font-weight: 600; }}
+    p {{ color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 24px; }}
+    .badge {{
+      display: inline-block;
+      padding: 6px 14px;
+      background: rgba(45, 212, 191, 0.12);
+      color: #2dd4bf;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+      </svg>
+    </div>
+    <h2>Google 認証が完了しました！</h2>
+    <p>HomeSpark GeMo デスクトップアプリに戻ってください。<br>このブラウザタブは閉じて構いません。</p>
+    <div class="badge">認証アカウント: {identity.get('email', '')}</div>
+  </div>
+  <script>
+    // Try auto-closing tab after 3 seconds
+    setTimeout(() => {{ window.close(); }}, 3000);
+  </script>
+</body>
+</html>"""
+    resp = HTMLResponse(content=html, status_code=200)
     resp.delete_cookie(_OAUTH_NONCE_COOKIE, path="/api/auth")
     return resp
 

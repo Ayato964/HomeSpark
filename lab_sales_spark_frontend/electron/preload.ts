@@ -29,12 +29,13 @@ export interface ElectronAPI {
   restartAndInstallUpdate: () => void;
   onUpdateStatus: (callback: (data: UpdateStatusData) => void) => () => void;
   getBackendPort: () => Promise<number>;
+  openExternal: (url: string) => void;
 }
 
 const electronAPI: ElectronAPI = {
   isElectron: true,
   platform: process.platform,
-  appVersion: "3.1.8",
+  appVersion: "3.1.9",
   minimize: () => ipcRenderer.send("window-minimize"),
   maximize: () => ipcRenderer.send("window-maximize"),
   close: () => ipcRenderer.send("window-close"),
@@ -69,6 +70,7 @@ const electronAPI: ElectronAPI = {
     };
   },
   getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
+  openExternal: (url: string) => ipcRenderer.send("open-external", url),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);

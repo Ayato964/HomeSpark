@@ -10,6 +10,7 @@ import {
   Notification,
   screen,
   dialog,
+  shell,
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
@@ -827,6 +828,12 @@ function setupIPC() {
           }
         }, 1500);
       }
+    }
+  });
+
+  ipcMain.on("open-external", (_event, url: string) => {
+    if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
+      shell.openExternal(url);
     }
   });
 }

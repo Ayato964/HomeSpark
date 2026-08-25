@@ -27,6 +27,7 @@ export interface ElectronAPI {
   restartAndInstallUpdate: () => void;
   onUpdateStatus: (callback: (data: UpdateStatusData) => void) => () => void;
   getBackendPort: () => Promise<number>;
+  openExternal: (url: string) => void;
 }
 
 declare global {

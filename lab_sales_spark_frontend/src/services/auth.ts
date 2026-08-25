@@ -42,10 +42,81 @@ function decodeClaims(token: string): SessionClaims | null {
   }
 }
 
-/** Start login: full-page redirect to the backend → Google consent. */
-export function login(): void {
-  if (typeof window !== 'undefined') {
-    window.location.href = `${getBackendBaseUrl()}/api/auth/login`;
+let _isLoginInProgress = false;
+let _activePollInterval: any = null;
+
+// Event listener for UI to show session expiration prompt
+type AuthListener = (event: 'session_expired' | 'logged_in') => void;
+const _authListeners: Set<AuthListener> = new Set();
+
+export function onAuthEvent(listener: AuthListener): () => void {
+  _authListeners.add(listener);
+  return () => {
+    _authListeners.delete(listener);
+  };
+}
+
+export function notifySessionExpired(): void {
+  clearInvalidSession();
+  _authListeners.forEach((l) => l('session_expired'));
+}
+
+/** Start login: launches external default browser on Electron, with automatic background session polling. */
+export function login(onSuccess?: () => void, onTimeout?: () => void): void {
+  if (typeof window === 'undefined') return;
+  const loginUrl = `${getBackendBaseUrl()}/api/auth/login`;
+
+  if (window.electronAPI?.openExternal) {
+    if (_activePollInterval) {
+      clearInterval(_activePollInterval);
+      _activePollInterval = null;
+    }
+    _isLoginInProgress = true;
+
+    // Open in user's default system browser (Chrome/Edge) to completely avoid disallowed_useragent
+    window.electronAPI.openExternal(loginUrl);
+
+    // 5 minutes (300 seconds) polling for full 2FA / Password Reset allowance
+    let attempts = 0;
+    const maxAttempts = 200; // 200 * 1.5s = 300s
+
+    _activePollInterval = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        clearInterval(_activePollInterval);
+        _activePollInterval = null;
+        _isLoginInProgress = false;
+        if (onTimeout) {
+          onTimeout();
+        } else {
+          alert('Googleサインインの有効時間が経過しました。もう一度ログインをお試しください。');
+        }
+        return;
+      }
+      try {
+        const res = await fetch(`${getBackendBaseUrl()}/api/auth/session/poll`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ready && data.session) {
+            clearInterval(_activePollInterval);
+            _activePollInterval = null;
+            _isLoginInProgress = false;
+            window.localStorage.setItem(STORAGE_KEY, data.session);
+            _authListeners.forEach((l) => l('logged_in'));
+            if (onSuccess) {
+              onSuccess();
+            } else {
+              window.location.reload();
+            }
+          }
+        }
+      } catch {
+        // Ignore transient poll failures
+      }
+    }, 1500);
+  } else {
+    // Web fallback
+    window.location.href = loginUrl;
   }
 }
 

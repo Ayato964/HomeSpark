@@ -1,5 +1,6 @@
 import { ChatEvent, MessageContentItem, Person, UserProfile, ImapAccount } from '../types/chat';
 import { getBackendBaseUrl } from '../utils/platform';
+import { notifySessionExpired } from './auth';
 
 export class ChatService {
   private backendUrl: string;
@@ -227,9 +228,7 @@ export class ChatService {
       headers: this.authHeaders(token),
     });
     if (response.status === 401) {
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem('spark_session');
-      }
+      notifySessionExpired();
       return { connected: false, configured: false };
     }
     if (!response.ok) {
@@ -245,9 +244,7 @@ export class ChatService {
       headers: this.authHeaders(token),
     });
     if (response.status === 401) {
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem('spark_session');
-      }
+      notifySessionExpired();
       return;
     }
     if (!response.ok) {
