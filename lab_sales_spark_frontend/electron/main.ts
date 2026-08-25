@@ -59,15 +59,15 @@ function checkPortAlive(port: number): Promise<boolean> {
     req.on("error", () => {
       resolve(false);
     });
-    req.setTimeout(800, () => {
+    req.setTimeout(600, () => {
       req.destroy();
       resolve(false);
     });
   });
 }
 
-// Wait until a port is open
-async function waitForPort(port: number, timeoutMs = 35000): Promise<boolean> {
+// Wait until a port is open with safety timeout
+async function waitForPort(port: number, timeoutMs = 15000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const isAlive = await checkPortAlive(port);
@@ -111,7 +111,7 @@ function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: s
         backendDir: embeddedBackend,
         venvPython: embeddedPython,
         ttsDir: path.join(embeddedBackend, "Irodori-TTS-Lite"),
-        frontendDir: path.join(__dirname, "../"),
+        frontendDir: app.getAppPath(),
       };
     }
   }
@@ -130,6 +130,23 @@ function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: s
   };
 }
 
+// Locate Next.js CLI binary across packaged and unpackaged environments
+function findNextCli(frontendDir: string): string | null {
+  const candidates = [
+    path.join(frontendDir, "node_modules", "next", "dist", "bin", "next"),
+    path.join(app.getAppPath(), "node_modules", "next", "dist", "bin", "next"),
+    path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "next", "dist", "bin", "next"),
+    path.join(process.resourcesPath, "app_backend", "node_modules", "next", "dist", "bin", "next"),
+  ];
+
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+  return null;
+}
+
 import { promisify } from "util";
 const execAsync = promisify(require("child_process").exec);
 
@@ -137,7 +154,7 @@ const execAsync = promisify(require("child_process").exec);
 async function checkGpuPresent(venvPython: string): Promise<boolean> {
   if (process.platform === "win32") {
     try {
-      const { stdout } = await execAsync("powershell -NoProfile -Command \"Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name\"", { timeout: 4000 });
+      const { stdout } = await execAsync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', { timeout: 3000 });
       const out = (stdout || "").toLowerCase();
       if (out.includes("nvidia") || out.includes("geforce") || out.includes("rtx") || out.includes("gtx") || out.includes("quadro") || out.includes("radeon")) {
         return true;
@@ -147,13 +164,12 @@ async function checkGpuPresent(venvPython: string): Promise<boolean> {
     }
   }
 
-  // Check via python torch.cuda if available
   if (fs.existsSync(venvPython)) {
     try {
-      await execAsync(`"${venvPython}" -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 4000 });
-      return true; // Exited with 0
+      await execAsync(`"${venvPython}" -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 3000 });
+      return true;
     } catch {
-      // Exited with 1 or timeout
+      // fallback
     }
   }
 
@@ -194,7 +210,7 @@ function createSplashWindow() {
   });
 }
 
-// Auto-start backend, TTS, and frontend services with GPU diagnosis
+// Auto-start backend, TTS, and frontend services
 async function ensureAllServices() {
   const { backendDir, venvPython, ttsDir, frontendDir } = getBackendConfig();
 
@@ -253,28 +269,26 @@ async function ensureAllServices() {
     updateSplash("⚡ GPU非搭載環境: 音声合成エンジンの起動をスキップしました", 75, "軽量テキストチャットモード");
   }
 
-  // 3. Ensure Frontend Server (port 3000) for development mode
-  if (isDev) {
-    updateSplash("🖥️ フロントエンド UI サーバーを起動中 (3000)...", 85, "Next.js");
-    const frontendAlive = await checkPortAlive(3000);
-    if (!frontendAlive) {
+  // 3. Ensure Frontend Server (port 3000) for BOTH Production and Dev
+  updateSplash("🖥️ フロントエンド UI サーバーを起動中 (3000)...", 85, "Next.js");
+  const frontendAlive = await checkPortAlive(3000);
+  if (!frontendAlive) {
+    const nodeExe = process.execPath;
+    const nextCli = findNextCli(frontendDir);
+    if (nextCli && fs.existsSync(nextCli)) {
       try {
-        const nodeExe = process.execPath;
-        const nextCli = path.join(frontendDir, "node_modules", "next", "dist", "bin", "next");
-        if (fs.existsSync(nextCli)) {
-          const frontendProc = spawn(nodeExe, [nextCli, "start", "-p", "3000"], {
-            cwd: frontendDir,
-            stdio: "ignore",
-            detached: false,
-            shell: false,
-            windowsHide: true,
-            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-          });
-          frontendProc.on("error", (err) => console.warn("[Frontend Proc Error]:", err.message));
-          spawnedProcesses.push(frontendProc);
-        }
+        const frontendProc = spawn(nodeExe, [nextCli, "start", "-p", "3000"], {
+          cwd: frontendDir,
+          stdio: "ignore",
+          detached: false,
+          shell: false,
+          windowsHide: true,
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+        });
+        frontendProc.on("error", (err) => console.warn("[Frontend Proc Error]:", err.message));
+        spawnedProcesses.push(frontendProc);
       } catch (e) {
-        console.error("[Electron] Failed to start dev frontend:", e);
+        console.error("[Electron] Failed to start frontend server:", e);
       }
     }
   }
@@ -298,7 +312,7 @@ function cleanupProcesses() {
   }
 }
 
-// Create fallback 16x16 / 32x32 colored tray icon if no png exists
+// Create fallback tray icon
 function createDefaultTrayIcon(): NativeImage {
   const iconPath = path.join(__dirname, "assets", "tray_icon.png");
   try {
@@ -326,7 +340,7 @@ async function createWindow() {
     frame: false,
     titleBarStyle: "hidden",
     backgroundColor: "#0d0f17",
-    show: false, // Show after splash finish
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -335,23 +349,30 @@ async function createWindow() {
     },
   });
 
-  // Wait for frontend port or load
-  await waitForPort(3000, 25000);
+  // Wait for frontend port or fallback to loadURL
+  await waitForPort(3000, 15000);
 
-  const loadWithRetry = (retries = 8) => {
+  const showAndCloseSplash = () => {
+    updateSplash("🚀 準備完了！", 100);
+    setTimeout(() => {
+      mainWindow?.show();
+      mainWindow?.focus();
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.close();
+      }
+    }, 400);
+  };
+
+  const loadWithRetry = (retries = 6) => {
     mainWindow?.loadURL(FRONTEND_URL).then(() => {
-      updateSplash("🚀 準備完了！", 100);
-      setTimeout(() => {
-        mainWindow?.show();
-        mainWindow?.focus();
-        if (splashWindow && !splashWindow.isDestroyed()) {
-          splashWindow.close();
-        }
-      }, 500);
+      showAndCloseSplash();
     }).catch((err) => {
       console.warn(`[Electron] loadURL failed (${retries} retries left):`, err);
       if (retries > 0) {
         setTimeout(() => loadWithRetry(retries - 1), 1000);
+      } else {
+        // Ultimate fallback: Always show main window even on network error
+        showAndCloseSplash();
       }
     });
   };
