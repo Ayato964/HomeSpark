@@ -153,6 +153,17 @@ class PostgresStorageProvider(BaseStorageProvider):
                 );
                 CREATE INDEX IF NOT EXISTS idx_spark_imap_user
                 ON spark_imap_accounts (tenant_id, user_ref);
+
+                CREATE TABLE IF NOT EXISTS spark_google_tokens (
+                    tenant_id UUID NOT NULL,
+                    user_ref TEXT NOT NULL,
+                    access_token TEXT NOT NULL,
+                    refresh_token TEXT,
+                    token_expiry BIGINT,
+                    scope TEXT,
+                    updated_at BIGINT NOT NULL,
+                    PRIMARY KEY (tenant_id, user_ref)
+                );
                 """
             )
         self._initialized = True
