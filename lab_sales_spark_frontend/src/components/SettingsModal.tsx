@@ -18,7 +18,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // Auto-updater state
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
-  const [currentVersion, setCurrentVersion] = useState<string>('3.1.12');
+  const [currentVersion, setCurrentVersion] = useState<string>('3.1.13');
 
   // Multi-Provider LLM state
   const [activeProvider, setActiveProvider] = useState<'gemini' | 'openai' | 'custom_vllm' | 'local_vllm'>('custom_vllm');

@@ -62,6 +62,32 @@ class PostgresStorageProvider(BaseStorageProvider):
         with self._get_pool().connection() as conn:
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS spark_chats (
+                    id UUID PRIMARY KEY,
+                    tenant_id UUID NOT NULL,
+                    user_ref TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_spark_chats_user
+                ON spark_chats (tenant_id, user_ref);
+
+                CREATE TABLE IF NOT EXISTS spark_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    tenant_id UUID NOT NULL,
+                    user_ref TEXT NOT NULL,
+                    chat_id UUID NOT NULL REFERENCES spark_chats(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    content JSONB,
+                    tool_calls JSONB,
+                    tool_call_id TEXT,
+                    name TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_spark_messages_chat
+                ON spark_messages (tenant_id, user_ref, chat_id);
+
                 CREATE TABLE IF NOT EXISTS spark_digital_business_cards (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     tenant_id UUID NOT NULL,
