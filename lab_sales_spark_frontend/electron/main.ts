@@ -604,11 +604,29 @@ function createOverlayWindow() {
 }
 
 function setupAutoUpdater() {
+  autoUpdater.logger = console;
+  autoUpdater.allowPrerelease = true;
+  autoUpdater.allowDowngrade = false;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  try {
+    autoUpdater.setFeedURL({
+      provider: "github",
+      owner: "Ayato964",
+      repo: "HomeSpark",
+    });
+  } catch (e: any) {
+    console.warn("[AutoUpdater] setFeedURL error:", e?.message);
+  }
+
   autoUpdater.on("checking-for-update", () => {
+    console.log("[AutoUpdater] Checking for updates from GitHub Releases...");
     mainWindow?.webContents.send("update-status", { status: "checking" });
   });
 
   autoUpdater.on("update-available", (info) => {
+    console.log("[AutoUpdater] Found update-available:", info.version);
     mainWindow?.webContents.send("update-status", { status: "available", version: info.version });
     if (Notification.isSupported()) {
       new Notification({
@@ -618,7 +636,8 @@ function setupAutoUpdater() {
     }
   });
 
-  autoUpdater.on("update-not-available", () => {
+  autoUpdater.on("update-not-available", (info) => {
+    console.log("[AutoUpdater] Update not-available. Current version is latest:", info?.version);
     mainWindow?.webContents.send("update-status", { status: "not-available" });
   });
 
@@ -630,6 +649,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
+    console.log("[AutoUpdater] Update downloaded successfully:", info.version);
     mainWindow?.webContents.send("update-status", { status: "downloaded", version: info.version });
     if (Notification.isSupported()) {
       new Notification({
@@ -755,12 +775,18 @@ function setupIPC() {
     }
   });
 
-  ipcMain.on("check-for-updates", () => {
+  ipcMain.on("check-for-updates", async () => {
     if (!isDev) {
-      autoUpdater.checkForUpdates().catch((err) => {
-        console.warn("[IPC] checkForUpdates failed:", err);
-      });
+      try {
+        console.log("[IPC] Manual check-for-updates triggered");
+        const res = await autoUpdater.checkForUpdates();
+        console.log("[IPC] checkForUpdates triggered successfully, updateInfo:", res?.updateInfo?.version);
+      } catch (err: any) {
+        console.warn("[IPC] checkForUpdates failed:", err?.message);
+        mainWindow?.webContents.send("update-status", { status: "error", error: err?.message });
+      }
     } else {
+      console.log("[IPC] In development mode, mock not-available update-status");
       mainWindow?.webContents.send("update-status", { status: "not-available" });
     }
   });
