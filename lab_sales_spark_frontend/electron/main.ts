@@ -45,7 +45,7 @@ let lastSplashState = { log: "システム初期化中...", percent: 20, subLog:
 // Child processes for local backend and TTS
 const spawnedProcesses: ChildProcess[] = [];
 
-const isDev = process.env.NODE_ENV !== "production" || !app.isPackaged;
+const isDev = !app.isPackaged;
 
 // Configure autoUpdater
 autoUpdater.autoDownload = true;
@@ -747,6 +747,10 @@ function setupIPC() {
     }
   });
 
+  ipcMain.handle("get-app-version", () => {
+    return app.getVersion();
+  });
+
   ipcMain.handle("get-backend-port", () => {
     return resolvedBackendPort;
   });
@@ -789,11 +793,14 @@ function setupIPC() {
         console.log("[IPC] checkForUpdates triggered successfully, updateInfo:", res?.updateInfo?.version);
       } catch (err: any) {
         console.warn("[IPC] checkForUpdates failed:", err?.message);
-        mainWindow?.webContents.send("update-status", { status: "error", error: err?.message });
+        mainWindow?.webContents.send("update-status", { status: "error", error: err?.message || String(err) });
       }
     } else {
-      console.log("[IPC] In development mode, mock not-available update-status");
-      mainWindow?.webContents.send("update-status", { status: "not-available" });
+      console.log("[IPC] In development mode, reporting dev-mode update-status");
+      mainWindow?.webContents.send("update-status", {
+        status: "dev-mode",
+        message: "開発モード（未パッケージ）で実行中のため、自動更新は無効です。最新版は GitHub Releases から入手できます。"
+      });
     }
   });
 

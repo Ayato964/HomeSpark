@@ -6,6 +6,16 @@ interface ReleaseNotesModalProps {
 }
 
 export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, onClose }) => {
+  const [appVersion, setAppVersion] = React.useState<string>('3.1.9');
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.getAppVersion) {
+      (window as any).electronAPI.getAppVersion().then((v: string) => {
+        if (v) setAppVersion(v);
+      }).catch(() => {});
+    }
+  }, []);
+
   if (!isOpen) return null;
 
   return (
@@ -50,7 +60,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
               justifyContent: 'center',
               color: '#4285F4'
             }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14 2 14 8 20 8"/>
                 <line x1="16" y1="13" x2="8" y2="13"/>
@@ -58,8 +68,8 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
                 <polyline points="10 9 9 9 8 9"/>
               </svg>
             </div>
-            <span style={{ fontWeight: 600, fontSize: '15px', fontFamily: "'IBM Plex Sans', sans-serif", color: 'var(--text)' }}>
-              リリースノート (Release Notes)
+            <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)', fontFamily: "'IBM Plex Sans', sans-serif" }}>
+              リリースノート
             </span>
           </div>
           <button 
@@ -91,10 +101,10 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           flexDirection: 'column',
           gap: '24px'
         }}>
-          {/* ver 3.1 */}
+          {/* Latest Version */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 600, background: '#4285F4', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.3.1.2</span>
+              <span style={{ fontSize: '11px', fontWeight: 600, background: '#4285F4', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.{appVersion}</span>
               <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-25</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>

@@ -18,6 +18,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // Auto-updater state
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
+  const [currentVersion, setCurrentVersion] = useState<string>('3.1.9');
 
   const chatService = new ChatService();
 
@@ -25,14 +26,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const desktop = isDesktopApp();
     setIsDesktop(desktop);
 
-    if (desktop && window.electronAPI?.onUpdateStatus) {
-      const unsub = window.electronAPI.onUpdateStatus((data) => {
-        setUpdateStatus(data);
-        if (data.status !== 'checking') {
-          setCheckingUpdate(false);
-        }
-      });
-      return () => unsub();
+    if (desktop && window.electronAPI) {
+      if (window.electronAPI.getAppVersion) {
+        window.electronAPI.getAppVersion().then((v) => {
+          if (v) setCurrentVersion(v);
+        }).catch(() => {});
+      }
+
+      if (window.electronAPI.onUpdateStatus) {
+        const unsub = window.electronAPI.onUpdateStatus((data) => {
+          setUpdateStatus(data);
+          if (data.status !== 'checking') {
+            setCheckingUpdate(false);
+          }
+        });
+        return () => unsub();
+      }
     }
   }, []);
 
@@ -371,7 +380,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     borderRadius: '4px',
                   }}
                 >
-                  v3.1.9
+                  v{currentVersion}
                 </span>
               </div>
               <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: 'var(--text3)', lineHeight: 1.5 }}>
@@ -395,7 +404,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       HomeSpark GeMo (デスクトップ版)
                     </span>
                     <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
-                      現在のバージョン: <strong>v3.1.9</strong>
+                      現在のバージョン: <strong>v{currentVersion}</strong>
                     </span>
                   </div>
 
@@ -442,7 +451,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <polyline points="20 6 9 17 4 12"/>
                     </svg>
-                    お使いのバージョンは最新です
+                    お使いのバージョン（v{currentVersion}）は最新です
+                  </div>
+                )}
+
+                {updateStatus?.status === 'dev-mode' && (
+                  <div style={{ fontSize: '11.5px', color: '#F2994A', display: 'flex', alignItems: 'flex-start', gap: '8px', background: 'rgba(242, 153, 74, 0.08)', border: '1px solid rgba(242, 153, 74, 0.25)', padding: '8px 12px', borderRadius: '8px' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F2994A" strokeWidth="2" style={{ flexShrink: 0, marginTop: '2px' }}>
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="8" x2="12" y2="12"/>
+                      <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span>{updateStatus.message || '開発モードで稼働中のため、自動更新は無効です。'}</span>
+                      <button
+                        onClick={() => window.electronAPI?.openExternal('https://github.com/Ayato964/HomeSpark/releases/latest')}
+                        style={{ background: 'transparent', border: 'none', color: '#4285F4', padding: 0, cursor: 'pointer', textAlign: 'left', fontSize: '11px', textDecoration: 'underline' }}
+                      >
+                        GitHub Releases から最新版インストーラを確認 ↗
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -515,13 +543,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 )}
 
                 {updateStatus?.status === 'error' && (
-                  <div style={{ fontSize: '11.5px', color: '#EA4335', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10"/>
-                      <line x1="12" y1="8" x2="12" y2="12"/>
-                      <line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    {updateStatus.error || '更新の確認中にエラーが発生しました。'}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 12px', background: 'rgba(234, 67, 53, 0.08)', border: '1px solid rgba(234, 67, 53, 0.25)', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '11.5px', color: '#EA4335', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                      <span>{updateStatus.error || '更新の確認中にエラーが発生しました。'}</span>
+                    </div>
+                    <button
+                      onClick={() => window.electronAPI?.openExternal('https://github.com/Ayato964/HomeSpark/releases/latest')}
+                      style={{
+                        alignSelf: 'flex-start',
+                        padding: '5px 10px',
+                        fontSize: '11px',
+                        background: 'var(--panel)',
+                        border: '1px solid var(--border3)',
+                        color: '#4285F4',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      GitHub Releases から直接ダウンロード ↗
+                    </button>
                   </div>
                 )}
               </div>

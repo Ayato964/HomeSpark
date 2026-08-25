@@ -64,6 +64,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isVoiceCallSupported = false,
 }) => {
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('3.1.9');
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.getAppVersion) {
+      window.electronAPI.getAppVersion().then((v) => {
+        if (v) setAppVersion(v);
+      }).catch(() => {});
+    }
+  }, []);
 
   const handleGoogleClick = () => {
     if (googleLinked) {
@@ -104,7 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
           <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '15px', fontWeight: 600, letterSpacing: '.10em', color: 'var(--text)' }}>HOMESPARK</span>
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo 3.1.9</span>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo {appVersion}</span>
         </div>
       </div>
 

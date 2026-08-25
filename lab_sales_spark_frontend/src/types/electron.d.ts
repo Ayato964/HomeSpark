@@ -4,16 +4,18 @@ export interface SubtitleData {
 }
 
 export interface UpdateStatusData {
-  status: "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error";
+  status: "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error" | "dev-mode";
   version?: string;
   percent?: number;
   error?: string;
+  message?: string;
 }
 
 export interface ElectronAPI {
   isElectron: boolean;
   platform: string;
   appVersion: string;
+  getAppVersion: () => Promise<string>;
   minimize: () => void;
   maximize: () => void;
   close: () => void;
