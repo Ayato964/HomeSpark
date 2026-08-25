@@ -19,16 +19,29 @@ logger = logging.getLogger("sales_spark")
 # Add current directory to path so we can import config/core
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Load main/.env BEFORE importing config.const (which reads os.getenv at import
-# time). Without this, `python server.py` runs with no DATABASE_URL / Google
-# creds and every DB-backed endpoint 500s. A real deployment (Cloud Run) sets
-# these in the environment, where the missing .env file is simply a no-op.
-try:
-    from dotenv import load_dotenv
+# Load environment variables from all possible locations (.env in backend, root, AppData, user profile)
+def _load_all_envs():
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
 
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
-except ImportError:
-    pass
+    candidates = [
+        # 1. User AppData (production desktop persistence: %APPDATA%\HomeSpark\.env)
+        os.path.join(os.getenv("APPDATA", ""), "HomeSpark", ".env") if os.getenv("APPDATA") else "",
+        # 2. User profile (~/.homespark/.env)
+        os.path.join(os.path.expanduser("~"), ".homespark", ".env"),
+        # 3. Project local .env (backend dir)
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+        # 4. Project root .env
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"),
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            logger.info(f"[Env] Loading environment variables from {c}")
+            load_dotenv(c, override=False)
+
+_load_all_envs()
 
 from config.const import (
     DEFAULT_SYSTEM_PROMPT,
@@ -904,6 +917,110 @@ async def set_storage_mode(req: StorageModeRequest):
         return {"status": "ok", "storage_mode": manager.mode}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+def _get_appdata_env_path() -> str:
+    appdata = os.getenv("APPDATA")
+    if appdata:
+        dir_path = os.path.join(appdata, "HomeSpark")
+    else:
+        dir_path = os.path.join(os.path.expanduser("~"), ".homespark")
+    os.makedirs(dir_path, exist_ok=True)
+    return os.path.join(dir_path, ".env")
+
+
+class ApiKeySettingsRequest(BaseModel):
+    api_key: str
+    base_url: Optional[str] = None
+    model_name: Optional[str] = None
+
+
+@app.get("/api/settings/api-key")
+async def get_api_key_settings():
+    """Get current API key status (masked for security)."""
+    current_key = os.getenv("BYTECOMPUTE_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+    has_key = bool(current_key and current_key.strip())
+    masked = ""
+    if has_key:
+        clean = current_key.strip()
+        if len(clean) > 8:
+            masked = clean[:8] + "..." + clean[-4:]
+        else:
+            masked = clean[:2] + "..."
+    return {
+        "has_key": has_key,
+        "preview": masked,
+        "base_url": os.getenv("BYTECOMPUTE_BASE_URL", "https://jp-01.bytecompute.ai/v1"),
+        "model_name": os.getenv("MODEL_NAME", "gemma-4-31B-it"),
+    }
+
+
+@app.post("/api/settings/api-key")
+async def set_api_key_settings(req: ApiKeySettingsRequest):
+    """Save API key and update runtime environment immediately without restart."""
+    new_key = req.api_key.strip()
+    if not new_key:
+        raise HTTPException(status_code=400, detail="API key cannot be empty")
+    
+    # 1. Update live process environment immediately
+    os.environ["BYTECOMPUTE_API_KEY"] = new_key
+    if req.base_url and req.base_url.strip():
+        os.environ["BYTECOMPUTE_BASE_URL"] = req.base_url.strip()
+    if req.model_name and req.model_name.strip():
+        os.environ["MODEL_NAME"] = req.model_name.strip()
+    
+    # 2. Persist to %APPDATA%/HomeSpark/.env
+    env_file = _get_appdata_env_path()
+    try:
+        existing_lines = []
+        if os.path.isfile(env_file):
+            with open(env_file, "r", encoding="utf-8") as f:
+                existing_lines = f.readlines()
+        
+        key_found = False
+        new_lines = []
+        for line in existing_lines:
+            if line.startswith("BYTECOMPUTE_API_KEY="):
+                new_lines.append(f"BYTECOMPUTE_API_KEY={new_key}\n")
+                key_found = True
+            else:
+                new_lines.append(line)
+        if not key_found:
+            new_lines.append(f"BYTECOMPUTE_API_KEY={new_key}\n")
+        
+        with open(env_file, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+        logger.info(f"[Settings] Saved BYTECOMPUTE_API_KEY to {env_file}")
+    except Exception as e:
+        logger.warning(f"[Settings] Failed to write to {env_file}: {e}")
+
+    # Also try to persist to local backend .env if exists
+    local_env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        if os.path.isfile(local_env):
+            with open(local_env, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            k_found = False
+            n_lines = []
+            for l in lines:
+                if l.startswith("BYTECOMPUTE_API_KEY="):
+                    n_lines.append(f"BYTECOMPUTE_API_KEY={new_key}\n")
+                    k_found = True
+                else:
+                    n_lines.append(l)
+            if not k_found:
+                n_lines.append(f"BYTECOMPUTE_API_KEY={new_key}\n")
+            with open(local_env, "w", encoding="utf-8") as f:
+                f.writelines(n_lines)
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "message": "API key successfully updated and activated",
+        "has_key": True,
+        "preview": new_key[:8] + "..." + new_key[-4:] if len(new_key) > 8 else "***"
+    }
 
 
 @app.get("/api/system/gpu-status")

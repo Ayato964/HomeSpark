@@ -720,4 +720,37 @@ export class ChatService {
     }
     return { has_gpu: false };
   }
+
+  /** Get current LLM API key status (masked preview). */
+  public async getApiKeyStatus(): Promise<{ has_key: boolean; preview: string; base_url: string; model_name: string }> {
+    try {
+      const response = await fetch(`${this.backendUrl}/api/settings/api-key`);
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch {
+      // fallback
+    }
+    return { has_key: false, preview: '', base_url: 'https://jp-01.bytecompute.ai/v1', model_name: 'gemma-4-31B-it' };
+  }
+
+  /** Save LLM API key and activate immediately. */
+  public async saveApiKey(apiKey: string, baseUrl?: string, modelName?: string): Promise<{ status: string; message: string; has_key: boolean; preview: string }> {
+    const response = await fetch(`${this.backendUrl}/api/settings/api-key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        base_url: baseUrl,
+        model_name: modelName,
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `APIキーの保存に失敗しました: ${response.status}`);
+    }
+    return response.json();
+  }
 }

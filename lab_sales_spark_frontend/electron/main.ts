@@ -247,6 +247,57 @@ function findProjectRootDir(): string {
   return "G:\\My_Project\\spark";
 }
 
+// Load persisted environment variables from AppData / user profile
+function loadUserEnvironment(): Record<string, string> {
+  const envMap: Record<string, string> = {};
+  const appDataDir = path.join(app.getPath("appData"), "HomeSpark");
+  const userEnvPath = path.join(appDataDir, ".env");
+  const projectRootDir = findProjectRootDir();
+  const devEnvPath = path.join(projectRootDir, "lab_sales_spark_backend", ".env");
+
+  // If AppData .env does not exist yet, but dev .env exists, provision initial copy
+  if (!fs.existsSync(userEnvPath) && fs.existsSync(devEnvPath)) {
+    try {
+      if (!fs.existsSync(appDataDir)) {
+        fs.mkdirSync(appDataDir, { recursive: true });
+      }
+      fs.copyFileSync(devEnvPath, userEnvPath);
+      console.log("[Electron] Initialized AppData .env from dev environment:", userEnvPath);
+    } catch (e) {
+      console.warn("[Electron] Failed to initialize AppData .env:", e);
+    }
+  }
+
+  const envCandidates = [
+    userEnvPath,
+    path.join(app.getPath("home"), ".homespark", ".env"),
+    devEnvPath,
+  ];
+
+  for (const p of envCandidates) {
+    if (fs.existsSync(p)) {
+      try {
+        const content = fs.readFileSync(p, "utf-8");
+        for (const line of content.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
+            const idx = trimmed.indexOf("=");
+            const key = trimmed.slice(0, idx).trim();
+            const val = trimmed.slice(idx + 1).trim();
+            if (key && !(key in envMap)) {
+              envMap[key] = val;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[Electron] Failed to parse env file at ${p}:`, err);
+      }
+    }
+  }
+
+  return envMap;
+}
+
 // Resolve backend directories and Python executable
 function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: string } {
   if (process.resourcesPath) {
@@ -376,6 +427,7 @@ async function ensureBackendServices() {
   if (!backendAlive) {
     if (fs.existsSync(venvPython)) {
       try {
+        const userEnv = loadUserEnvironment();
         let lastStderr = "";
         const backendProc = spawn(
           venvPython,
@@ -388,6 +440,7 @@ async function ensureBackendServices() {
             windowsHide: true,
             env: {
               ...process.env,
+              ...userEnv,
               PARENT_ELECTRON_PID: process.pid.toString(),
               PORT: resolvedBackendPort.toString(),
             },

@@ -18,7 +18,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // Auto-updater state
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
-  const [currentVersion, setCurrentVersion] = useState<string>('3.1.9');
+  const [currentVersion, setCurrentVersion] = useState<string>('3.1.11');
+  // API Key state
+  const [apiKey, setApiKey] = useState<string>('');
+  const [apiKeyPreview, setApiKeyPreview] = useState<string>('');
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const [showApiKeyInput, setShowApiKeyInput] = useState<boolean>(false);
+  const [savingApiKey, setSavingApiKey] = useState<boolean>(false);
+  const [apiKeyMsg, setApiKeyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const chatService = new ChatService();
 
@@ -48,12 +55,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   useEffect(() => {
     if (isOpen) {
       setStorageMsg(null);
+      setApiKeyMsg(null);
       setLoading(true);
-      chatService
-        .getStorageMode()
-        .then((mode) => setStorageMode(mode))
-        .catch(() => setStorageMode('cloud'))
-        .finally(() => setLoading(false));
+      
+      Promise.all([
+        chatService.getStorageMode().catch(() => 'cloud' as const),
+        chatService.getApiKeyStatus().catch(() => ({ has_key: false, preview: '', base_url: '', model_name: '' }))
+      ]).then(([mode, keyStatus]) => {
+        setStorageMode(mode);
+        setHasApiKey(keyStatus.has_key);
+        setApiKeyPreview(keyStatus.preview);
+      }).finally(() => {
+        setLoading(false);
+      });
     }
   }, [isOpen]);
 
@@ -91,6 +105,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleRestartUpdate = () => {
     window.electronAPI?.restartAndInstallUpdate();
+  };
+
+  const handleSaveApiKey = async () => {
+    if (!apiKey.trim() || savingApiKey) return;
+    setSavingApiKey(true);
+    setApiKeyMsg(null);
+    try {
+      const res = await chatService.saveApiKey(apiKey.trim());
+      setHasApiKey(true);
+      setApiKeyPreview(res.preview);
+      setApiKey('');
+      setShowApiKeyInput(false);
+      setApiKeyMsg({ type: 'success', text: 'APIキーを安全に保存し、即座に有効化しました！' });
+    } catch (e: any) {
+      setApiKeyMsg({ type: 'error', text: `保存エラー: ${e.message || '不明なエラー'}` });
+    } finally {
+      setSavingApiKey(false);
+    }
   };
 
   return (
@@ -195,8 +227,165 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             gap: '24px',
           }}
         >
-          {/* Section 1: Storage Engine */}
+          {/* Section 1: AI / API Key Configuration */}
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4285F4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text)' }}>
+                AI / LLM API キー設定
+              </span>
+              <span
+                style={{
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  background: 'rgba(66, 133, 244, 0.1)',
+                  color: '#4285F4',
+                  border: '1px solid rgba(66, 133, 244, 0.25)',
+                  padding: '1px 6px',
+                  borderRadius: '4px',
+                }}
+              >
+                Gemma 4-31B-it
+              </span>
+            </div>
+            <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: 'var(--text3)', lineHeight: 1.5 }}>
+              HomeSpark GeMo の対話エンジン（ByteCompute API）に接続するための API キーを設定します。設定は安全にローカル環境に保存され、即座に有効化されます。
+            </p>
+
+            <div
+              style={{
+                padding: '14px 16px',
+                borderRadius: '12px',
+                background: 'var(--bg)',
+                border: '1px solid var(--border2)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {hasApiKey ? (
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#34A853' }} />
+                  ) : (
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#EA4335' }} />
+                  )}
+                  <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text)' }}>
+                    {hasApiKey ? '接続状態: 有効' : '接続状態: 未設定（要設定）'}
+                  </span>
+                  {hasApiKey && (
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', color: 'var(--text3)' }}>
+                      ({apiKeyPreview})
+                    </span>
+                  )}
+                </div>
+
+                {!showApiKeyInput && hasApiKey && (
+                  <button
+                    onClick={() => setShowApiKeyInput(true)}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border3)',
+                      background: 'var(--panel)',
+                      color: 'var(--text)',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    変更する
+                  </button>
+                )}
+              </div>
+
+              {(showApiKeyInput || !hasApiKey) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="password"
+                      placeholder="bytecompute_... または APIキーを入力"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveApiKey();
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border3)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        outline: 'none',
+                      }}
+                    />
+                    <button
+                      onClick={handleSaveApiKey}
+                      disabled={savingApiKey || !apiKey.trim()}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: '#4285F4',
+                        color: '#fff',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: savingApiKey || !apiKey.trim() ? 'not-allowed' : 'pointer',
+                        opacity: savingApiKey || !apiKey.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {savingApiKey ? '保存中...' : '保存して有効化'}
+                    </button>
+                    {hasApiKey && (
+                      <button
+                        onClick={() => {
+                          setShowApiKeyInput(false);
+                          setApiKey('');
+                          setApiKeyMsg(null);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border2)',
+                          background: 'transparent',
+                          color: 'var(--text3)',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        キャンセル
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {apiKeyMsg && (
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: apiKeyMsg.type === 'success' ? 'rgba(52, 168, 83, 0.1)' : 'rgba(234, 67, 53, 0.1)',
+                    border: `1px solid ${apiKeyMsg.type === 'success' ? 'rgba(52, 168, 83, 0.25)' : 'rgba(234, 67, 53, 0.25)'}`,
+                    color: apiKeyMsg.type === 'success' ? '#34A853' : '#EA4335',
+                    fontSize: '11.5px',
+                  }}
+                >
+                  {apiKeyMsg.text}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 2: Storage Engine */}
+          <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <ellipse cx="12" cy="5" rx="9" ry="3"/>
