@@ -11,7 +11,7 @@ import { ReleaseNotesModal } from "../components/ReleaseNotesModal";
 import { ImapSettingsModal } from "../components/ImapSettingsModal";
 import { UserProfile } from "../types/chat";
 import { ChatService } from "../services/ChatService";
-import { getToken } from "../services/auth";
+import { getToken, loginQuick } from "../services/auth";
 import { sendSubtitleToOverlay } from "../utils/electron";
 
 
@@ -1685,8 +1685,41 @@ export default function Home() {
                   </svg>
                   Google アカウントでログイン
                 </button>
+
+                {/* Instant Quick Login for desktop / local offline use */}
+                <button
+                  onClick={() => loginQuick("ayato.yofukashi@gmail.com", "Ayato")}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    width: '100%',
+                    padding: '11px 18px',
+                    border: '1px solid var(--border2)',
+                    background: 'var(--panel)',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    fontFamily: "'IBM Plex Sans',system-ui,sans-serif",
+                    fontSize: '13.5px',
+                    fontWeight: 600,
+                    borderRadius: '14px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--accent)';
+                    e.currentTarget.style.background = 'var(--activebg)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border2)';
+                    e.currentTarget.style.background = 'var(--panel)';
+                  }}
+                >
+                  <span>⚡</span> ワンクリックですぐに始める (ローカルログイン)
+                </button>
+
                 <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
-                  ログインすることで、各種提案機能とGoogleカレンダー/Gmail連携をご利用いただけます。
+                  Googleログインまたはワンクリックログインで、すべての秘書機能・会話・設定をご利用いただけます。
                 </span>
               </div>
             </div>

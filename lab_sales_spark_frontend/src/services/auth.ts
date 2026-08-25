@@ -51,6 +51,27 @@ export function login(): void {
   }
 }
 
+/** Instant login for local/offline usage or while Google OAuth is unverified. */
+export function loginQuick(
+  email: string = "ayato.yofukashi@gmail.com",
+  name: string = "Ayato (Local User)"
+): void {
+  if (typeof window === 'undefined') return;
+  const claims = {
+    sub: "usr_" + btoa(email).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16),
+    email: email,
+    name: name,
+    picture: null,
+    exp: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60, // 30 days
+  };
+  const jsonStr = JSON.stringify(claims);
+  const b64 = btoa(unescape(encodeURIComponent(jsonStr)));
+  const b64url = b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const token = `${b64url}.local_dev_session`;
+  window.localStorage.setItem(STORAGE_KEY, token);
+  window.location.reload();
+}
+
 export function logout(): void {
   if (typeof window !== 'undefined') {
     window.localStorage.removeItem(STORAGE_KEY);
