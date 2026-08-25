@@ -45,6 +45,10 @@ class BaseStorageProvider(ABC):
         content: Any,
         title: Optional[str] = None,
         model: Optional[str] = None,
+        tool_calls: Optional[Any] = None,
+        tool_call_id: Optional[str] = None,
+        name: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         """Append a message to a chat session and update session metadata."""
         pass

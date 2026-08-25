@@ -1,5 +1,7 @@
 """Unit tests for Storage Providers and StorageManager (OOP / Strategy Pattern)."""
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import shutil
 import tempfile
 import unittest
@@ -105,6 +107,7 @@ class TestStorageProviders(unittest.TestCase):
         self.assertEqual(len(self.provider.get_digital_business_cards(self.test_uid)), 0)
 
     def test_storage_manager_mode_switch(self):
+        from unittest.mock import patch
         manager = StorageManager.get_instance()
         initial_mode = manager.mode
 
@@ -112,9 +115,14 @@ class TestStorageProviders(unittest.TestCase):
         self.assertEqual(manager.mode, "local")
         self.assertEqual(manager.get_provider().provider_type, "local")
 
-        manager.set_mode("cloud")
-        self.assertEqual(manager.mode, "cloud")
-        self.assertEqual(manager.get_provider().provider_type, "cloud")
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://mock:mock@localhost/mock"}):
+            manager.set_mode("cloud")
+            self.assertEqual(manager.mode, "cloud")
+            self.assertEqual(manager.get_provider().provider_type, "cloud")
+
+        # Without DATABASE_URL, cloud mode gracefully falls back to local
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(manager.get_provider().provider_type, "local")
 
         # restore initial mode
         manager.set_mode(initial_mode)

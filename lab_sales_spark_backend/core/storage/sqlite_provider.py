@@ -66,6 +66,9 @@ class SqliteStorageProvider(BaseStorageProvider):
                     chat_id TEXT NOT NULL,
                     role TEXT NOT NULL,
                     content TEXT,
+                    tool_calls TEXT,
+                    tool_call_id TEXT,
+                    name TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (chat_id) REFERENCES spark_chats(id) ON DELETE CASCADE
                 );
@@ -207,12 +210,31 @@ class SqliteStorageProvider(BaseStorageProvider):
         content: t.Any,
         title: str | None = None,
         model: str | None = None,
+        tool_calls: t.Any = None,
+        tool_call_id: str | None = None,
+        name: str | None = None,
+        **kwargs: t.Any,
     ) -> None:
         self.initialize()
         cid = str(chat_id)
         content_str = json.dumps(content, ensure_ascii=False) if content is not None else None
+        tool_calls_str = json.dumps(tool_calls, ensure_ascii=False) if tool_calls is not None else None
         now_iso = datetime.now().isoformat()
         with self._get_conn() as conn:
+            # Defensive column addition for existing sqlite DBs
+            try:
+                conn.execute("ALTER TABLE spark_messages ADD COLUMN tool_calls TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE spark_messages ADD COLUMN tool_call_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE spark_messages ADD COLUMN name TEXT")
+            except sqlite3.OperationalError:
+                pass
+
             # Upsert chat
             conn.execute(
                 """
@@ -228,10 +250,10 @@ class SqliteStorageProvider(BaseStorageProvider):
             # Insert message
             conn.execute(
                 """
-                INSERT INTO spark_messages (tenant_id, user_ref, chat_id, role, content, created_at)
-                VALUES ('00000000-0000-0000-0000-000000000001', ?, ?, ?, ?, ?)
+                INSERT INTO spark_messages (tenant_id, user_ref, chat_id, role, content, tool_calls, tool_call_id, name, created_at)
+                VALUES ('00000000-0000-0000-0000-000000000001', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (uid, cid, role, content_str, now_iso),
+                (uid, cid, role, content_str, tool_calls_str, tool_call_id, name, now_iso),
             )
 
     def delete_chat(self, uid: str, chat_id: str) -> None:

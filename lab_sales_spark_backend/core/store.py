@@ -44,8 +44,23 @@ def save_message(
     content: t.Any,
     title: str | None = None,
     model: str | None = None,
+    tool_calls: t.Any = None,
+    tool_call_id: str | None = None,
+    name: str | None = None,
+    **kwargs: t.Any,
 ) -> None:
-    _get_provider().save_message(uid, chat_id, role, content, title, model)
+    _get_provider().save_message(
+        uid=uid,
+        chat_id=chat_id,
+        role=role,
+        content=content,
+        title=title,
+        model=model,
+        tool_calls=tool_calls,
+        tool_call_id=tool_call_id,
+        name=name,
+        **kwargs,
+    )
 
 
 def delete_chat(uid: str, chat_id: str) -> None:

@@ -223,6 +223,10 @@ class PostgresStorageProvider(BaseStorageProvider):
         content: t.Any,
         title: str | None = None,
         model: str | None = None,
+        tool_calls: t.Any = None,
+        tool_call_id: str | None = None,
+        name: str | None = None,
+        **kwargs: t.Any,
     ) -> None:
         self.initialize()
         cid = _as_uuid(chat_id)
@@ -241,10 +245,19 @@ class PostgresStorageProvider(BaseStorageProvider):
             )
             conn.execute(
                 """
-                INSERT INTO spark_messages (tenant_id, user_ref, chat_id, role, content, created_at)
-                VALUES (%s, %s, %s, %s, %s, NOW())
+                INSERT INTO spark_messages (tenant_id, user_ref, chat_id, role, content, tool_calls, tool_call_id, name, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """,
-                (self.tenant_uuid, uid, cid, role, _json_or_none(content)),
+                (
+                    self.tenant_uuid,
+                    uid,
+                    cid,
+                    role,
+                    _json_or_none(content),
+                    _json_or_none(tool_calls),
+                    tool_call_id,
+                    name,
+                ),
             )
 
     def delete_chat(self, uid: str, chat_id: str) -> None:
