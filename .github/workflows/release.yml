@@ -53,8 +53,21 @@ jobs:
           npm run build
           npm run build:electron
 
-      - name: Build and Publish Standalone Windows Installer to GitHub Releases
+      - name: Build Standalone Windows Packages
         working-directory: ./lab_sales_spark_frontend
+        run: npx electron-builder --win
+
+      - name: Upload and Publish Release to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            lab_sales_spark_frontend/dist-package/*.exe
+            lab_sales_spark_frontend/dist-package/*.yml
+            lab_sales_spark_frontend/dist-package/*.blockmap
+            lab_sales_spark_frontend/dist-package/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --publish always
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

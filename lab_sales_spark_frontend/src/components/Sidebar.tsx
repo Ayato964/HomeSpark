@@ -30,6 +30,7 @@ interface SidebarProps {
   onToggleVoiceCall?: () => void;
   realtimeCallEnabled?: boolean;
   onToggleRealtimeCall?: () => void;
+  isVoiceCallSupported?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -60,6 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleVoiceCall,
   realtimeCallEnabled = false,
   onToggleRealtimeCall,
+  isVoiceCallSupported = false,
 }) => {
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
 
@@ -379,49 +381,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <span>🚀</span> リリースノート
             </button>
-            {/* Realtime Call Toggle */}
-            <div
-              onClick={() => onToggleRealtimeCall?.()}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                userSelect: 'none',
-                transition: 'background 0.2s ease',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              title="オンにするとAIが常に待機し、マイクボタンはミュート切り替えになります"
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: 'var(--text)' }}>
-                <span>🎙️</span>
-                <span>リアルタイム呼び出し</span>
-              </div>
-              <div style={{
-                width: '32px',
-                height: '18px',
-                borderRadius: '10px',
-                background: realtimeCallEnabled ? 'var(--accent)' : 'var(--border3)',
-                position: 'relative',
-                transition: 'background 0.2s ease',
-                flexShrink: 0,
-              }}>
+            {/* Realtime Call Toggle (Desktop & GPU only) */}
+            {isVoiceCallSupported && (
+              <div
+                onClick={onToggleRealtimeCall}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                title="オンにするとAIが常に待機し、マイクボタンはミュート切り替えになります"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: 'var(--text)' }}>
+                  <span>🎙️</span>
+                  <span>リアルタイム呼び出し</span>
+                </div>
                 <div style={{
-                  width: '14px',
-                  height: '14px',
-                  borderRadius: '50%',
-                  background: '#fff',
-                  position: 'absolute',
-                  top: '2px',
-                  left: realtimeCallEnabled ? '16px' : '2px',
-                  transition: 'left 0.2s ease',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                }} />
+                  width: '32px',
+                  height: '18px',
+                  borderRadius: '10px',
+                  background: realtimeCallEnabled ? 'var(--accent)' : 'var(--border3)',
+                  position: 'relative',
+                  transition: 'background 0.2s ease',
+                  flexShrink: 0,
+                }}>
+                  <div style={{
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '50%',
+                    background: '#fff',
+                    position: 'absolute',
+                    top: '2px',
+                    left: realtimeCallEnabled ? '16px' : '2px',
+                    transition: 'left 0.2s ease',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                  }} />
+                </div>
               </div>
-            </div>
+            )}
 
             <button
               onClick={() => {

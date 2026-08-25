@@ -699,4 +699,17 @@ export class ChatService {
     }
     return response.json();
   }
+
+  /** Check local machine GPU availability for voice models. */
+  public async getGpuStatus(): Promise<{ has_gpu: boolean; gpu_name?: string; device_count?: number }> {
+    try {
+      const response = await fetch(`${this.backendUrl}/api/system/gpu-status`);
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch {
+      // fallback
+    }
+    return { has_gpu: false };
+  }
 }

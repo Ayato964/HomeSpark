@@ -10,6 +10,8 @@ import { DigitalBusinessCardView } from "../components/spark/DigitalBusinessCard
 import { ReleaseNotesModal } from "../components/ReleaseNotesModal";
 import { ImapSettingsModal } from "../components/ImapSettingsModal";
 import { SettingsModal } from "../components/SettingsModal";
+import { OnboardingModal } from "../components/OnboardingModal";
+import { isDesktopApp } from "../utils/platform";
 import { UserProfile } from "../types/chat";
 import { ChatService } from "../services/ChatService";
 import { getToken, loginQuick } from "../services/auth";
@@ -125,10 +127,32 @@ export default function Home() {
   const [isConvActive, setIsConvActive] = useState<boolean>(false); // is_conv flag
   const [subtitle, setSubtitle] = useState<{ text: string; sender: 'user' | 'ai' | 'status' } | null>(null);
 
+  // Onboarding & Platform states
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
+  const [isVoiceCallSupported, setIsVoiceCallSupported] = useState<boolean>(false);
+
   const isVoiceMutedRef = useRef<boolean>(false);
   const realtimeCallEnabledRef = useRef<boolean>(false);
   const isConvActiveRef = useRef<boolean>(false);
   const lastAssistantResponseRef = useRef<string>('');
+
+  useEffect(() => {
+    const desktop = isDesktopApp();
+    if (desktop) {
+      const done = localStorage.getItem('homespark_gemo_onboarding_done');
+      const voiceSupported = localStorage.getItem('homespark_voice_supported');
+      if (done !== 'true') {
+        setIsOnboardingOpen(true);
+      } else {
+        setIsVoiceCallSupported(voiceSupported === 'true');
+      }
+    } else {
+      // Web browser: voice AI is disabled by default
+      setIsVoiceCallSupported(false);
+      setIsVoiceCallActive(false);
+      setRealtimeCallEnabled(false);
+    }
+  }, []);
 
   useEffect(() => {
     isConvActiveRef.current = isConvActive;
@@ -1511,6 +1535,7 @@ export default function Home() {
         onToggleVoiceCall={() => setIsVoiceCallActive(prev => !prev)}
         realtimeCallEnabled={realtimeCallEnabled}
         onToggleRealtimeCall={handleToggleRealtimeCall}
+        isVoiceCallSupported={isVoiceCallSupported}
       />
 
       {/* ============ MAIN AREA ============ */}
@@ -1826,7 +1851,7 @@ export default function Home() {
       )}
 
       {/* ============ FLOATING BOTTOM CENTER MICROPHONE BUTTON ============ */}
-      {user && (
+      {user && isVoiceCallSupported && (
         <div style={{
           position: 'fixed',
           bottom: '22px',
@@ -1950,6 +1975,17 @@ export default function Home() {
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+      />
+      <OnboardingModal
+        isOpen={isOnboardingOpen}
+        onLoginGoogle={login}
+        onLoginQuick={loginQuick}
+        onComplete={(voiceEnabled) => {
+          setIsVoiceCallSupported(voiceEnabled);
+          localStorage.setItem('homespark_gemo_onboarding_done', 'true');
+          localStorage.setItem('homespark_voice_supported', voiceEnabled ? 'true' : 'false');
+          setIsOnboardingOpen(false);
+        }}
       />
 
       <style>{`

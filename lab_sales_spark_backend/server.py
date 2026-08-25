@@ -771,6 +771,29 @@ async def set_storage_mode(req: StorageModeRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/api/system/gpu-status")
+async def get_gpu_status():
+    """Check GPU and CUDA availability on the machine."""
+    try:
+        import torch
+        cuda_available = torch.cuda.is_available()
+        gpu_name = torch.cuda.get_device_name(0) if cuda_available else None
+        device_count = torch.cuda.device_count() if cuda_available else 0
+        return {
+            "has_gpu": cuda_available,
+            "gpu_name": gpu_name,
+            "device_count": device_count,
+            "cuda_version": torch.version.cuda if cuda_available else None,
+        }
+    except Exception as e:
+        return {
+            "has_gpu": False,
+            "gpu_name": None,
+            "device_count": 0,
+            "error": str(e)
+        }
+
+
 class AnalyzeEventRequest(BaseModel):
     event_id: str
     summary: Optional[str] = None
