@@ -31,10 +31,31 @@
       "public/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "../lab_sales_spark_backend",
+        "to": "app_backend",
+        "filter": [
+          "**/*",
+          "!sessions/*",
+          "!__pycache__/*",
+          "!data/*.db",
+          "!**/*.pyc"
+        ]
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HomeSpark GeMo",
+      "uninstallDisplayName": "HomeSpark GeMo"
+    },
     "win": {
       "target": [
-        "portable",
-        "nsis"
+        "nsis",
+        "portable"
       ]
     }
   },

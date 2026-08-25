@@ -84,12 +84,40 @@ function findProjectRootDir(): string {
   return "G:\\My_Project\\spark";
 }
 
-// Auto-start backend, TTS, and frontend services
-async function ensureAllServices() {
+// Resolve backend directories and Python executable
+function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: string; frontendDir: string } {
+  // 1. Check embedded production resources (All-in-One Standalone Package)
+  if (process.resourcesPath) {
+    const embeddedBackend = path.join(process.resourcesPath, "app_backend");
+    const embeddedPython = path.join(embeddedBackend, ".venv", "Scripts", "python.exe");
+    if (fs.existsSync(path.join(embeddedBackend, "server.py")) && fs.existsSync(embeddedPython)) {
+      console.log("[Electron] Using standalone embedded backend at:", embeddedBackend);
+      return {
+        backendDir: embeddedBackend,
+        venvPython: embeddedPython,
+        ttsDir: path.join(embeddedBackend, "Irodori-TTS-Lite"),
+        frontendDir: path.join(__dirname, "../"),
+      };
+    }
+  }
+
+  // 2. Fallback to local workspace development directory
   const rootDir = findProjectRootDir();
   const backendDir = path.join(rootDir, "lab_sales_spark_backend");
   const frontendDir = path.join(rootDir, "lab_sales_spark_frontend");
   const venvPython = path.join(backendDir, ".venv", "Scripts", "python.exe");
+
+  return {
+    backendDir,
+    venvPython,
+    ttsDir: path.join(backendDir, "Irodori-TTS-Lite"),
+    frontendDir,
+  };
+}
+
+// Auto-start backend, TTS, and frontend services
+async function ensureAllServices() {
+  const { backendDir, venvPython, ttsDir, frontendDir } = getBackendConfig();
 
   // 1. Ensure Backend Server (port 8080)
   const backendAlive = await checkPortAlive(8080);
@@ -120,7 +148,6 @@ async function ensureAllServices() {
   if (!ttsAlive) {
     console.log("[Electron] Auto-starting local TTS engine (port 8008)...");
     try {
-      const ttsDir = path.join(backendDir, "Irodori-TTS-Lite");
       const ttsProc = spawn(venvPython, ["app_voice.py"], {
         cwd: ttsDir,
         stdio: "ignore",
