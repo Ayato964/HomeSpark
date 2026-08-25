@@ -138,9 +138,10 @@ export default function Home() {
   const isConvActiveRef = useRef<boolean>(false);
   const lastAssistantResponseRef = useRef<string>('');
 
-  // Monitor backend health
+  // Monitor backend health with graceful retry
   useEffect(() => {
     let interval: NodeJS.Timeout;
+    let retries = 0;
     const checkHealth = async () => {
       try {
         const baseUrl = getBackendBaseUrl();
@@ -148,18 +149,27 @@ export default function Home() {
         if (res.ok) {
           setBackendStatus('connected');
           setBackendError(null);
+          retries = 0;
         } else {
+          if (retries < 2) {
+            retries++;
+            return;
+          }
           setBackendStatus('error');
           setBackendError(`バックエンドサーバーが HTTP ${res.status} を返しました`);
         }
       } catch (err: any) {
+        if (retries < 2) {
+          retries++;
+          return;
+        }
         setBackendStatus('error');
-        setBackendError(err?.message || 'バックエンドサーバー (8080) に接続できません');
+        setBackendError(err?.message || 'バックエンドサーバーに接続できません');
       }
     };
 
     checkHealth();
-    interval = setInterval(checkHealth, 6000);
+    interval = setInterval(checkHealth, 4000);
     return () => clearInterval(interval);
   }, []);
 

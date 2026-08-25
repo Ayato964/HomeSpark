@@ -2009,5 +2009,6 @@ if __name__ == "__main__":
     import uvicorn
     # Read port from environment variable for deployment compatibility
     port = int(os.getenv("PORT", 8080))
-    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
+    print(f"[FastAPI] Starting server on 127.0.0.1:{port}...", flush=True)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
 

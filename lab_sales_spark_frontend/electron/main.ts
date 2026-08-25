@@ -80,6 +80,32 @@ function findAvailablePort(startPort: number = 8080): Promise<number> {
   });
 }
 
+// Helper to poll until backend /api/health returns 200 OK or times out
+function waitForBackendReady(port: number, maxWaitMs: number = 15000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      const req = http.get(`http://127.0.0.1:${port}/api/health`, (res) => {
+        if (res.statusCode === 200) {
+          clearInterval(interval);
+          resolve(true);
+        }
+      });
+      req.on("error", () => {
+        // still starting up
+      });
+      req.setTimeout(500, () => {
+        req.destroy();
+      });
+
+      if (Date.now() - startTime > maxWaitMs) {
+        clearInterval(interval);
+        resolve(false);
+      }
+    }, 250);
+  });
+}
+
 // MIME types for embedded static server
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -331,7 +357,7 @@ function createSplashWindow() {
   });
 }
 
-// Auto-start backend and TTS services with crash monitoring & isolation (-s -E)
+// Auto-start backend and TTS services with crash monitoring & readiness check
 async function ensureBackendServices() {
   const { backendDir, venvPython, ttsDir } = getBackendConfig();
 
@@ -344,26 +370,33 @@ async function ensureBackendServices() {
   console.log(`[Electron] Starting FastAPI backend on dynamically resolved port: ${resolvedBackendPort}`);
 
   // 2. Ensure Backend Server (FastAPI)
-  updateSplash(`FastAPI バックエンドサーバーを起動中 (${resolvedBackendPort})...`, 50, "データベース＆API準備");
+  updateSplash(`FastAPI バックエンドサーバーを起動中 (${resolvedBackendPort})...`, 45, "データベース＆API準備");
   const backendAlive = await checkPortAlive(resolvedBackendPort);
   if (!backendAlive) {
     if (fs.existsSync(venvPython)) {
       try {
+        let lastStderr = "";
         const backendProc = spawn(
           venvPython,
-          ["-s", "-E", "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", resolvedBackendPort.toString()],
+          ["server.py"],
           {
             cwd: backendDir,
             stdio: "pipe",
             detached: false,
             shell: false,
             windowsHide: true,
-            env: { ...process.env, PARENT_ELECTRON_PID: process.pid.toString(), PORT: resolvedBackendPort.toString() },
+            env: {
+              ...process.env,
+              PARENT_ELECTRON_PID: process.pid.toString(),
+              PORT: resolvedBackendPort.toString(),
+            },
           }
         );
 
         backendProc.stderr?.on("data", (d) => {
-          console.log("[FastAPI Output]:", d.toString().trim());
+          const s = d.toString().trim();
+          console.log("[FastAPI Output]:", s);
+          lastStderr = s;
         });
 
         backendProc.on("error", (err) => {
@@ -374,11 +407,20 @@ async function ensureBackendServices() {
         backendProc.on("exit", (code) => {
           console.warn(`[Backend Exited]: code=${code}`);
           if (code !== 0 && !isQuitting) {
-            updateSplash(`バックエンドが異常終了しました (code: ${code})`, 80);
+            updateSplash(`バックエンド異常終了: ${lastStderr || `code ${code}`}`, 80);
           }
         });
 
         spawnedProcesses.push(backendProc);
+
+        // Wait until FastAPI is fully ready and responding to /api/health
+        updateSplash(`バックエンドの初期化完了を待機中 (${resolvedBackendPort})...`, 65, "ヘルスチェック");
+        const ready = await waitForBackendReady(resolvedBackendPort, 12000);
+        if (ready) {
+          console.log(`[Electron] FastAPI backend is verified ready on port ${resolvedBackendPort}!`);
+        } else {
+          console.warn(`[Electron] Backend did not respond within 12s, proceeding with fallback.`);
+        }
       } catch (e: any) {
         console.error("[Electron] Failed to spawn backend:", e);
         updateSplash(`バックエンド起動例外: ${e?.message || e}`, 80);
@@ -388,7 +430,7 @@ async function ensureBackendServices() {
 
   // 3. Ensure Local TTS Engine (port 8008) ONLY IF GPU IS PRESENT
   if (hasGpu) {
-    updateSplash("Irodori-TTS 音声合成エンジンを起動中 (8008)...", 75, "CUDA 高速音声推論");
+    updateSplash("Irodori-TTS 音声合成エンジンを起動中 (8008)...", 85, "CUDA 高速音声推論");
     const ttsAlive = await checkPortAlive(8008);
     if (!ttsAlive) {
       const ttsScript = path.join(ttsDir, "app_voice.py");
@@ -411,7 +453,7 @@ async function ensureBackendServices() {
       }
     }
   } else {
-    updateSplash("GPU非搭載環境: 音声合成エンジンの起動をスキップしました", 75, "軽量テキストチャットモード");
+    updateSplash("GPU非搭載環境: 音声合成エンジンの起動をスキップしました", 85, "軽量テキストチャットモード");
   }
 
   updateSplash("準備完了！HomeSpark GeMo を起動します...", 95);
@@ -445,7 +487,7 @@ function cleanupProcesses() {
 // Create fallback tray icon
 function createDefaultTrayIcon(): NativeImage {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-    <circle cx="8" cy="8" r="7" fill="#6366f1" />
+    <circle cx="8" cy="8" r="7" fill="#4285F4" />
     <path d="M8 4a2 2 0 0 0-2 2v2a2 2 0 0 0 4 0V6a2 2 0 0 0-2-2z" fill="#ffffff" />
     <path d="M5 8a3 3 0 0 0 6 0" stroke="#ffffff" stroke-width="1.2" fill="none" stroke-linecap="round"/>
   </svg>`;
