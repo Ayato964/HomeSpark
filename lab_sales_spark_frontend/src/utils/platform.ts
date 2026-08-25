@@ -16,7 +16,7 @@ let cachedBackendPort: number | null = null;
 
 /**
  * Returns the resolved backend API base URL dynamically.
- * Reads query params, Electron IPC, or defaults to dynamic local host.
+ * Reads query params, localStorage persistence, Electron IPC, or defaults to dynamic local host.
  */
 export function getBackendBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
@@ -28,22 +28,43 @@ export function getBackendBaseUrl(): string {
       const params = new URLSearchParams(window.location.search);
       const qPort = params.get("backendPort");
       if (qPort && !isNaN(Number(qPort))) {
-        cachedBackendPort = Number(qPort);
-        return `http://127.0.0.1:${qPort}`;
+        const p = Number(qPort);
+        cachedBackendPort = p;
+        try {
+          localStorage.setItem("homespark_dynamic_backend_port", p.toString());
+        } catch {}
+        return `http://127.0.0.1:${p}`;
       }
     } catch {
       // ignore
     }
 
-    // 2. Check cached dynamic port from Electron IPC
+    // 2. Check in-memory cached dynamic port
     if (cachedBackendPort) {
       return `http://127.0.0.1:${cachedBackendPort}`;
     }
 
-    // 3. Request asynchronously from Electron
+    // 3. Check persistent localStorage dynamic port (resilient against OAuth redirects)
+    try {
+      const storedPort = localStorage.getItem("homespark_dynamic_backend_port");
+      if (storedPort && !isNaN(Number(storedPort))) {
+        const p = Number(storedPort);
+        cachedBackendPort = p;
+        return `http://127.0.0.1:${p}`;
+      }
+    } catch {
+      // ignore
+    }
+
+    // 4. Request asynchronously from Electron for next calls
     if ((window as any).electronAPI?.getBackendPort) {
       (window as any).electronAPI.getBackendPort().then((p: number) => {
-        if (p) cachedBackendPort = p;
+        if (p) {
+          cachedBackendPort = p;
+          try {
+            localStorage.setItem("homespark_dynamic_backend_port", p.toString());
+          } catch {}
+        }
       }).catch(() => {});
     }
 
