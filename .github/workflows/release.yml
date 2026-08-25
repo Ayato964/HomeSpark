@@ -55,7 +55,7 @@ jobs:
 
       - name: Build Standalone Windows Packages
         working-directory: ./lab_sales_spark_frontend
-        run: npx electron-builder --win
+        run: npx electron-builder --win --publish never
 
       - name: Upload and Publish Release to GitHub Releases
         uses: softprops/action-gh-release@v2
