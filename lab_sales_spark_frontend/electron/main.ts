@@ -15,7 +15,10 @@ import * as path from "path";
 import * as fs from "fs";
 import { spawn, spawnSync, ChildProcess } from "child_process";
 import * as http from "http";
+import { promisify } from "util";
 import { autoUpdater } from "electron-updater";
+
+const execAsync = promisify(require("child_process").exec);
 
 // Crash resilience: Catch any unexpected exceptions
 process.on("uncaughtException", (error) => {
@@ -32,12 +35,14 @@ let overlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 let overlayHideTimer: NodeJS.Timeout | null = null;
+let internalServer: http.Server | null = null;
 
-// Child processes for local backend, TTS, and frontend
+// Child processes for local backend and TTS
 const spawnedProcesses: ChildProcess[] = [];
 
 const isDev = process.env.NODE_ENV !== "production" || !app.isPackaged;
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+const FRONTEND_PORT = 3000;
+const FRONTEND_URL = `http://127.0.0.1:${FRONTEND_PORT}`;
 
 // Configure autoUpdater
 autoUpdater.autoDownload = true;
@@ -48,6 +53,107 @@ function updateSplash(log: string, percent: number, subLog?: string) {
   if (splashWindow && !splashWindow.isDestroyed()) {
     splashWindow.webContents.send("splash-progress", { log, percent, subLog });
   }
+}
+
+// MIME types for embedded static server
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+// Locate Next.js static export `out` directory
+function getStaticOutDir(): string {
+  const candidates = [
+    path.join(__dirname, "../out"),
+    path.join(app.getAppPath(), "out"),
+    path.join(process.resourcesPath, "app.asar", "out"),
+    path.resolve(__dirname, "../../out"),
+    path.join(process.cwd(), "out"),
+  ];
+
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, "index.html"))) {
+      console.log("[Electron] Serving static frontend from:", c);
+      return c;
+    }
+  }
+
+  return path.join(app.getAppPath(), "out");
+}
+
+// Start embedded HTTP server inside Electron main process (0ms startup, ZERO external process needed)
+function startInternalHttpServer(): Promise<void> {
+  return new Promise((resolve) => {
+    if (internalServer) {
+      resolve();
+      return;
+    }
+
+    const outDir = getStaticOutDir();
+
+    internalServer = http.createServer((req, res) => {
+      try {
+        let reqPath = decodeURI(req.url?.split("?")[0] || "/");
+        if (reqPath === "/") reqPath = "/index.html";
+
+        let filePath = path.join(outDir, reqPath);
+
+        // Fallback for clean URLs or SPA routing
+        if (!fs.existsSync(filePath)) {
+          if (fs.existsSync(filePath + ".html")) {
+            filePath = filePath + ".html";
+          } else {
+            filePath = path.join(outDir, "index.html");
+          }
+        }
+
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          const ext = path.extname(filePath).toLowerCase();
+          const contentType = MIME_TYPES[ext] || "application/octet-stream";
+          const data = fs.readFileSync(filePath);
+          res.writeHead(200, {
+            "Content-Type": contentType,
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(data);
+        } else {
+          res.writeHead(404);
+          res.end("Not Found");
+        }
+      } catch (err) {
+        console.error("[Internal Server Error]:", err);
+        res.writeHead(500);
+        res.end("Internal Server Error");
+      }
+    });
+
+    internalServer.listen(FRONTEND_PORT, "127.0.0.1", () => {
+      console.log(`[Electron] Internal Frontend Server running at ${FRONTEND_URL}`);
+      resolve();
+    });
+
+    internalServer.on("error", (e: any) => {
+      if (e.code === "EADDRINUSE") {
+        console.log(`[Electron] Port ${FRONTEND_PORT} already in use (dev server or previous instance).`);
+        resolve();
+      } else {
+        console.error("[Internal Server Port Error]:", e);
+        resolve();
+      }
+    });
+  });
 }
 
 // Helper to check if a local HTTP service is alive
@@ -64,17 +170,6 @@ function checkPortAlive(port: number): Promise<boolean> {
       resolve(false);
     });
   });
-}
-
-// Wait until a port is open with safety timeout
-async function waitForPort(port: number, timeoutMs = 15000): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const isAlive = await checkPortAlive(port);
-    if (isAlive) return true;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  return false;
 }
 
 // Dynamically locate the workspace root folder for development
@@ -101,8 +196,7 @@ function findProjectRootDir(): string {
 }
 
 // Resolve backend directories and Python executable
-function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: string; frontendDir: string } {
-  // 1. Check embedded production resources (All-in-One Standalone Package)
+function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: string } {
   if (process.resourcesPath) {
     const embeddedBackend = path.join(process.resourcesPath, "app_backend");
     const embeddedPython = path.join(embeddedBackend, ".venv", "Scripts", "python.exe");
@@ -111,50 +205,26 @@ function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: s
         backendDir: embeddedBackend,
         venvPython: embeddedPython,
         ttsDir: path.join(embeddedBackend, "Irodori-TTS-Lite"),
-        frontendDir: app.getAppPath(),
       };
     }
   }
 
-  // 2. Fallback to local workspace development directory
   const rootDir = findProjectRootDir();
   const backendDir = path.join(rootDir, "lab_sales_spark_backend");
-  const frontendDir = path.join(rootDir, "lab_sales_spark_frontend");
   const venvPython = path.join(backendDir, ".venv", "Scripts", "python.exe");
 
   return {
     backendDir,
     venvPython,
     ttsDir: path.join(backendDir, "Irodori-TTS-Lite"),
-    frontendDir,
   };
 }
-
-// Locate Next.js CLI binary across packaged and unpackaged environments
-function findNextCli(frontendDir: string): string | null {
-  const candidates = [
-    path.join(frontendDir, "node_modules", "next", "dist", "bin", "next"),
-    path.join(app.getAppPath(), "node_modules", "next", "dist", "bin", "next"),
-    path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "next", "dist", "bin", "next"),
-    path.join(process.resourcesPath, "app_backend", "node_modules", "next", "dist", "bin", "next"),
-  ];
-
-  for (const p of candidates) {
-    if (fs.existsSync(p)) {
-      return p;
-    }
-  }
-  return null;
-}
-
-import { promisify } from "util";
-const execAsync = promisify(require("child_process").exec);
 
 // Check if NVIDIA / dedicated GPU is present asynchronously
 async function checkGpuPresent(venvPython: string): Promise<boolean> {
   if (process.platform === "win32") {
     try {
-      const { stdout } = await execAsync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', { timeout: 3000 });
+      const { stdout } = await execAsync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', { timeout: 2500 });
       const out = (stdout || "").toLowerCase();
       if (out.includes("nvidia") || out.includes("geforce") || out.includes("rtx") || out.includes("gtx") || out.includes("quadro") || out.includes("radeon")) {
         return true;
@@ -166,7 +236,7 @@ async function checkGpuPresent(venvPython: string): Promise<boolean> {
 
   if (fs.existsSync(venvPython)) {
     try {
-      await execAsync(`"${venvPython}" -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 3000 });
+      await execAsync(`"${venvPython}" -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 2500 });
       return true;
     } catch {
       // fallback
@@ -174,6 +244,26 @@ async function checkGpuPresent(venvPython: string): Promise<boolean> {
   }
 
   return false;
+}
+
+// Find splash.html or return fallback data URL
+function getSplashHtmlUrl(): string {
+  const candidates = [
+    path.join(__dirname, "splash.html"),
+    path.join(__dirname, "../electron/splash.html"),
+    path.join(app.getAppPath(), "dist-electron/splash.html"),
+    path.join(app.getAppPath(), "electron/splash.html"),
+  ];
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      return `file://${c.replace(/\\/g, "/")}`;
+    }
+  }
+
+  // Fallback inline splash HTML
+  const fallbackHtml = `<!DOCTYPE html><html><body style="background:#0d0f17;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;border-radius:16px;border:1px solid rgba(255,255,255,0.1);"><h2 style="margin-bottom:8px;">HomeSpark GeMo</h2><p id="log-text" style="font-size:12px;color:#94a3b8;">起動中...</p></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(fallbackHtml)}`;
 }
 
 // Create animated splash window
@@ -193,13 +283,8 @@ function createSplashWindow() {
     },
   });
 
-  const splashHtmlPath = isDev
-    ? path.join(__dirname, "../electron/splash.html")
-    : path.join(__dirname, "splash.html");
-
-  splashWindow.loadFile(splashHtmlPath).catch(() => {
-    splashWindow?.loadFile(path.join(__dirname, "splash.html"));
-  });
+  const splashUrl = getSplashHtmlUrl();
+  splashWindow.loadURL(splashUrl);
 
   splashWindow.once("ready-to-show", () => {
     splashWindow?.show();
@@ -210,16 +295,16 @@ function createSplashWindow() {
   });
 }
 
-// Auto-start backend, TTS, and frontend services
-async function ensureAllServices() {
-  const { backendDir, venvPython, ttsDir, frontendDir } = getBackendConfig();
+// Auto-start backend and TTS services with GPU diagnosis
+async function ensureBackendServices() {
+  const { backendDir, venvPython, ttsDir } = getBackendConfig();
 
-  updateSplash("🔍 ハードウェア環境（GPU / CUDA）を診断中...", 20, "システム診断");
+  updateSplash("🔍 ハードウェア環境（GPU / CUDA）を診断中...", 25, "システム診断");
   const hasGpu = await checkGpuPresent(venvPython);
   console.log("[Electron] GPU Presence Diagnosis:", hasGpu);
 
   // 1. Ensure Backend Server (FastAPI on port 8080)
-  updateSplash("🚀 FastAPI バックエンドサーバーを起動中 (8080)...", 45, "データベース＆API準備");
+  updateSplash("🚀 FastAPI バックエンドサーバーを起動中 (8080)...", 50, "データベース＆API準備");
   const backendAlive = await checkPortAlive(8080);
   if (!backendAlive) {
     if (fs.existsSync(venvPython)) {
@@ -245,7 +330,7 @@ async function ensureAllServices() {
 
   // 2. Ensure Local TTS Engine (port 8008) ONLY IF GPU IS PRESENT
   if (hasGpu) {
-    updateSplash("🎙️ Irodori-TTS 音声合成エンジンを起動中 (8008)...", 70, "CUDA 高速音声推論");
+    updateSplash("🎙️ Irodori-TTS 音声合成エンジンを起動中 (8008)...", 75, "CUDA 高速音声推論");
     const ttsAlive = await checkPortAlive(8008);
     if (!ttsAlive) {
       const ttsScript = path.join(ttsDir, "app_voice.py");
@@ -269,34 +354,17 @@ async function ensureAllServices() {
     updateSplash("⚡ GPU非搭載環境: 音声合成エンジンの起動をスキップしました", 75, "軽量テキストチャットモード");
   }
 
-  // 3. Ensure Frontend Server (port 3000) for BOTH Production and Dev
-  updateSplash("🖥️ フロントエンド UI サーバーを起動中 (3000)...", 85, "Next.js");
-  const frontendAlive = await checkPortAlive(3000);
-  if (!frontendAlive) {
-    const nodeExe = process.execPath;
-    const nextCli = findNextCli(frontendDir);
-    if (nextCli && fs.existsSync(nextCli)) {
-      try {
-        const frontendProc = spawn(nodeExe, [nextCli, "start", "-p", "3000"], {
-          cwd: frontendDir,
-          stdio: "ignore",
-          detached: false,
-          shell: false,
-          windowsHide: true,
-          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-        });
-        frontendProc.on("error", (err) => console.warn("[Frontend Proc Error]:", err.message));
-        spawnedProcesses.push(frontendProc);
-      } catch (e) {
-        console.error("[Electron] Failed to start frontend server:", e);
-      }
-    }
-  }
-
-  updateSplash("✨ 起動準備完了！HomeSpark GeMo を起動します...", 95);
+  updateSplash("✨ 準備完了！HomeSpark GeMo を起動します...", 95);
 }
 
 function cleanupProcesses() {
+  if (internalServer) {
+    try {
+      internalServer.close();
+    } catch {
+      // ignore
+    }
+  }
   for (const proc of spawnedProcesses) {
     try {
       if (proc.pid) {
@@ -314,14 +382,6 @@ function cleanupProcesses() {
 
 // Create fallback tray icon
 function createDefaultTrayIcon(): NativeImage {
-  const iconPath = path.join(__dirname, "assets", "tray_icon.png");
-  try {
-    const img = nativeImage.createFromPath(iconPath);
-    if (!img.isEmpty()) return img;
-  } catch {
-    // fallback
-  }
-
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
     <circle cx="8" cy="8" r="7" fill="#6366f1" />
     <path d="M8 4a2 2 0 0 0-2 2v2a2 2 0 0 0 4 0V6a2 2 0 0 0-2-2z" fill="#ffffff" />
@@ -349,9 +409,6 @@ async function createWindow() {
     },
   });
 
-  // Wait for frontend port or fallback to loadURL
-  await waitForPort(3000, 15000);
-
   const showAndCloseSplash = () => {
     updateSplash("🚀 準備完了！", 100);
     setTimeout(() => {
@@ -363,21 +420,16 @@ async function createWindow() {
     }, 400);
   };
 
-  const loadWithRetry = (retries = 6) => {
-    mainWindow?.loadURL(FRONTEND_URL).then(() => {
-      showAndCloseSplash();
-    }).catch((err) => {
-      console.warn(`[Electron] loadURL failed (${retries} retries left):`, err);
-      if (retries > 0) {
-        setTimeout(() => loadWithRetry(retries - 1), 1000);
-      } else {
-        // Ultimate fallback: Always show main window even on network error
+  mainWindow.loadURL(FRONTEND_URL).then(() => {
+    showAndCloseSplash();
+  }).catch((err) => {
+    console.warn("[Electron] Initial loadURL failed, retrying:", err);
+    setTimeout(() => {
+      mainWindow?.loadURL(FRONTEND_URL).finally(() => {
         showAndCloseSplash();
-      }
-    });
-  };
-
-  loadWithRetry();
+      });
+    }, 800);
+  });
 
   mainWindow.on("maximize", () => {
     mainWindow?.webContents.send("window-state-changed", true);
@@ -435,12 +487,9 @@ function createOverlayWindow() {
   overlayWindow.setVisibleOnAllWorkspaces(true);
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 
-  const overlayHtmlPath = isDev
-    ? path.join(__dirname, "../electron/overlay.html")
-    : path.join(__dirname, "overlay.html");
-
+  const overlayHtmlPath = path.join(__dirname, "overlay.html");
   overlayWindow.loadFile(overlayHtmlPath).catch(() => {
-    overlayWindow?.loadFile(path.join(__dirname, "overlay.html"));
+    overlayWindow?.loadFile(path.join(__dirname, "../electron/overlay.html"));
   });
 
   overlayWindow.on("closed", () => {
@@ -641,7 +690,8 @@ app.whenReady().then(async () => {
   setupIPC();
   setupAutoUpdater();
   createTray();
-  await ensureAllServices();
+  await startInternalHttpServer();
+  await ensureBackendServices();
   await createWindow();
   createOverlayWindow();
 

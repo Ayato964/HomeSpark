@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
-    "build:electron": "tsc -p electron/tsconfig.electron.json",
+    "build:electron": "tsc -p electron/tsconfig.electron.json && node -e \"const fs=require('fs'); fs.mkdirSync('dist-electron', {recursive:true}); for(const f of ['splash.html','overlay.html']) if(fs.existsSync('electron/'+f)) fs.copyFileSync('electron/'+f, 'dist-electron/'+f);\"",
     "dev:electron": "concurrently -k -s first \"npm run dev\" \"wait-on tcp:3000 && npm run build:electron && electron .\"",
     "dist:win": "npm run build && npm run build:electron && electron-builder --win --dir"
   },
@@ -27,12 +27,9 @@
     ],
     "files": [
       "dist-electron/**/*",
-      ".next/**/*",
+      "out/**/*",
       "public/**/*",
       "package.json"
-    ],
-    "asarUnpack": [
-      ".next/**/*"
     ],
     "extraResources": [
       {
