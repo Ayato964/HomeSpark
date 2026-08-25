@@ -5,9 +5,17 @@ export interface SubtitleData {
   sender: "user" | "ai" | "status";
 }
 
+export interface UpdateStatusData {
+  status: "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error";
+  version?: string;
+  percent?: number;
+  error?: string;
+}
+
 export interface ElectronAPI {
   isElectron: boolean;
   platform: string;
+  appVersion: string;
   minimize: () => void;
   maximize: () => void;
   close: () => void;
@@ -17,11 +25,15 @@ export interface ElectronAPI {
   onWindowStateChange: (callback: (isMaximized: boolean) => void) => () => void;
   updateSubtitle: (subtitle: SubtitleData | null) => void;
   onSubtitleMessage: (callback: (subtitle: SubtitleData | null) => void) => () => void;
+  checkForUpdates: () => void;
+  restartAndInstallUpdate: () => void;
+  onUpdateStatus: (callback: (data: UpdateStatusData) => void) => () => void;
 }
 
 const electronAPI: ElectronAPI = {
   isElectron: true,
   platform: process.platform,
+  appVersion: "3.0.0",
   minimize: () => ipcRenderer.send("window-minimize"),
   maximize: () => ipcRenderer.send("window-maximize"),
   close: () => ipcRenderer.send("window-close"),
@@ -44,6 +56,19 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on("subtitle-data", subscription);
     return () => {
       ipcRenderer.removeListener("subtitle-data", subscription);
+    };
+  },
+  checkForUpdates: () => {
+    ipcRenderer.send("check-for-updates");
+  },
+  restartAndInstallUpdate: () => {
+    ipcRenderer.send("restart-and-install-update");
+  },
+  onUpdateStatus: (callback: (data: UpdateStatusData) => void) => {
+    const subscription = (_event: unknown, data: UpdateStatusData) => callback(data);
+    ipcRenderer.on("update-status", subscription);
+    return () => {
+      ipcRenderer.removeListener("update-status", subscription);
     };
   },
 };

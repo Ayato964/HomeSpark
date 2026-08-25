@@ -1,6 +1,6 @@
 {
-  "name": "main",
-  "version": "0.1.0",
+  "name": "homespark-gemo",
+  "version": "3.0.0",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -13,11 +13,18 @@
     "dist:win": "npm run build && npm run build:electron && electron-builder --win --dir"
   },
   "build": {
-    "appId": "com.homespark.jenny",
-    "productName": "HomeSpark",
+    "appId": "com.homespark.gemo",
+    "productName": "HomeSpark GeMo",
     "directories": {
       "output": "dist-package"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Ayato964",
+        "repo": "HomeSpark"
+      }
+    ],
     "files": [
       "dist-electron/**/*",
       ".next/**/*",
@@ -25,10 +32,14 @@
       "package.json"
     ],
     "win": {
-      "target": ["portable", "nsis"]
+      "target": [
+        "portable",
+        "nsis"
+      ]
     }
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4"

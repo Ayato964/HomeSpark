@@ -9,11 +9,13 @@ import {
   globalShortcut,
   Notification,
   screen,
+  dialog,
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { spawn, spawnSync, execSync, ChildProcess } from "child_process";
 import * as http from "http";
+import { autoUpdater } from "electron-updater";
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
@@ -26,6 +28,10 @@ const spawnedProcesses: ChildProcess[] = [];
 
 const isDev = process.env.NODE_ENV !== "production" || !app.isPackaged;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+
+// Configure autoUpdater
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
 
 // Helper to check if a local HTTP service is alive
 function checkPortAlive(port: number): Promise<boolean> {
@@ -305,6 +311,54 @@ function createOverlayWindow() {
   });
 }
 
+// Setup auto-updater listeners
+function setupAutoUpdater() {
+  autoUpdater.on("checking-for-update", () => {
+    console.log("[AutoUpdater] Checking for update...");
+    mainWindow?.webContents.send("update-status", { status: "checking" });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    console.log("[AutoUpdater] Update available:", info.version);
+    mainWindow?.webContents.send("update-status", { status: "available", version: info.version });
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "🎉 新しいバージョンが見つかりました",
+        body: `HomeSpark GeMo v${info.version} をバックグラウンドでダウンロードしています...`,
+      }).show();
+    }
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    console.log("[AutoUpdater] Update not available. Current version is latest.");
+    mainWindow?.webContents.send("update-status", { status: "not-available" });
+  });
+
+  autoUpdater.on("download-progress", (progressObj) => {
+    console.log(`[AutoUpdater] Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
+    mainWindow?.webContents.send("update-status", {
+      status: "downloading",
+      percent: Math.round(progressObj.percent),
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    console.log("[AutoUpdater] Update downloaded:", info.version);
+    mainWindow?.webContents.send("update-status", { status: "downloaded", version: info.version });
+    if (Notification.isSupported()) {
+      new Notification({
+        title: "✨ アップデートの準備が完了しました！",
+        body: "アプリを再起動すると、自動的に最新バージョンが適用されます。",
+      }).show();
+    }
+  });
+
+  autoUpdater.on("error", (err) => {
+    console.warn("[AutoUpdater] Error during update check:", err?.message);
+    mainWindow?.webContents.send("update-status", { status: "error", error: err?.message });
+  });
+}
+
 function createTray() {
   const icon = createDefaultTrayIcon();
   tray = new Tray(icon);
@@ -321,6 +375,22 @@ function createTray() {
       },
     },
     { type: "separator" },
+    {
+      label: "🔄 アップデートを確認",
+      click: () => {
+        if (!isDev) {
+          autoUpdater.checkForUpdates().catch((err) => {
+            console.warn("[Tray] checkForUpdates failed:", err);
+          });
+        } else {
+          dialog.showMessageBox({
+            type: "info",
+            title: "アップデート確認",
+            message: "開発モードで稼働中です。パッケージ版（.exe）にて自動更新が有効になります。",
+          });
+        }
+      },
+    },
     {
       label: "🔄 再読み込み",
       click: () => {
@@ -390,6 +460,23 @@ function setupIPC() {
     }
   });
 
+  // Auto-updater IPC triggers
+  ipcMain.on("check-for-updates", () => {
+    if (!isDev) {
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.warn("[IPC] checkForUpdates failed:", err);
+      });
+    } else {
+      mainWindow?.webContents.send("update-status", { status: "not-available" });
+    }
+  });
+
+  ipcMain.on("restart-and-install-update", () => {
+    isQuitting = true;
+    cleanupProcesses();
+    autoUpdater.quitAndInstall(false, true);
+  });
+
   // Handle Subtitle updates from renderer process
   ipcMain.on("update-subtitle", (_event, subtitle) => {
     if (overlayHideTimer) {
@@ -401,12 +488,10 @@ function setupIPC() {
       overlayWindow.webContents.send("subtitle-data", subtitle);
 
       if (subtitle && subtitle.text && subtitle.text.trim().length > 0) {
-        // Show overlay without stealing focus
         if (!overlayWindow.isVisible()) {
           overlayWindow.showInactive();
         }
       } else {
-        // Fade out / hide after brief delay
         overlayHideTimer = setTimeout(() => {
           if (overlayWindow && !overlayWindow.isDestroyed()) {
             overlayWindow.webContents.send("subtitle-data", null);
@@ -425,6 +510,7 @@ function setupIPC() {
 // App lifecycle
 app.whenReady().then(async () => {
   setupIPC();
+  setupAutoUpdater();
   createTray();
   await ensureAllServices();
   await createWindow();
@@ -441,6 +527,15 @@ app.whenReady().then(async () => {
       }
     }
   });
+
+  // Check for updates on launch in packaged mode
+  if (!isDev) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+        console.warn("[AutoUpdater] Launch check error:", e?.message);
+      });
+    }, 4000);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

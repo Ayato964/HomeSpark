@@ -1,0 +1,41 @@
+name: Release Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: lab_sales_spark_frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./lab_sales_spark_frontend
+        run: npm ci
+
+      - name: Run Tests
+        working-directory: ./lab_sales_spark_frontend
+        run: npm run test
+
+      - name: Build Next.js & Electron
+        working-directory: ./lab_sales_spark_frontend
+        run: |
+          npm run build
+          npm run build:electron
+
+      - name: Build and Publish Windows Installer to GitHub Releases
+        working-directory: ./lab_sales_spark_frontend
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish always
