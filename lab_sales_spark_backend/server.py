@@ -1574,6 +1574,58 @@ async def get_gpu_status():
         }
 
 
+@app.get("/api/system/voice-capability")
+async def get_voice_capability():
+    """Report which voice profile this machine can run, and what is installable.
+
+    The Windows installer ships a slim embedded Python (no torch / whisper /
+    Irodori-TTS), so a fresh install is legitimately a "cloud" configuration.
+    The UI uses this to describe the machine honestly instead of reporting a
+    missing optional engine as a failure."""
+    from core import voice_runtime
+
+    try:
+        return voice_runtime.capability()
+    except Exception as e:  # noqa: BLE001 - detection must never 500
+        logger.warning(f"[VoiceCapability] Detection failed: {e}")
+        return {
+            "mode": "cloud",
+            "gpu": {"has_gpu": False, "gpu_name": None, "vram": None, "source": "error"},
+            "local_stt_ready": False,
+            "local_tts_ready": False,
+            "missing_stt_modules": [],
+            "missing_tts_modules": [],
+            "recommended_profile": None,
+            "installable": False,
+            "error": str(e),
+            "profiles": {},
+        }
+
+
+class VoiceEngineInstallRequest(BaseModel):
+    profile: str
+
+
+@app.post("/api/system/voice-engine/install")
+async def install_voice_engine(req: VoiceEngineInstallRequest):
+    """Install the local voice engine into the embedded Python runtime.
+
+    Runs pip in a background thread; poll /install-status for progress."""
+    from core import voice_runtime
+
+    try:
+        return voice_runtime.start_install(req.profile)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/system/voice-engine/install-status")
+async def get_voice_engine_install_status():
+    from core import voice_runtime
+
+    return voice_runtime.install_status()
+
+
 @app.post("/api/system/voice-diagnostics")
 async def run_voice_diagnostics():
     """End-to-End Voice AI Diagnostics Suite:
@@ -1604,164 +1656,241 @@ async def run_voice_diagnostics():
     log("🚀 [音声対話AI エンドツーエンド深層診断] 診断プロセスを開始しました")
     log("==================================================================")
 
+    from core import voice_runtime
+
+    capability = voice_runtime.capability()
+    mode = capability["mode"]
+    # A machine without the local voice stack is a *supported* configuration
+    # (Web Speech synthesis + cloud STT), not a failure. Only probe the local
+    # engines when this build can actually run them.
+    expect_local_tts = mode == "local_gpu"
+    expect_local_stt = capability["local_stt_ready"]
+
     results = {
         "status": "ok",
         "overall_pass": True,
+        "mode": mode,
+        "capability": capability,
         "gpu": {"pass": False, "details": {}},
-        "tts": {"pass": False, "details": {}},
-        "stt": {"pass": False, "details": {}},
+        "tts": {"pass": False, "skipped": False, "details": {}},
+        "stt": {"pass": False, "skipped": False, "details": {}},
         "llm": {"pass": False, "details": {}},
         "logs": diagnostic_logs,
         "total_latency_ms": 0,
     }
 
+    _MODE_LABELS = {
+        "local_gpu": "ローカルGPU構成 (Irodori-TTS + faster-whisper をこの PC で実行)",
+        "local_stt": "ハイブリッド構成 (音声認識はローカル / 音声合成は Web Speech API)",
+        "cloud": "クラウド構成 (音声合成は Web Speech API / 音声認識はクラウドSTT)",
+    }
+    log(f"実行構成: {_MODE_LABELS.get(mode, mode)}")
+
     # -------------------------------------------------------------
     # Step 1: GPU, CUDA & VRAM Diagnostic
     # -------------------------------------------------------------
     log("[1/4] ハードウェア・GPU・CUDA環境の診断中...")
-    try:
-        import torch
-        cuda_avail = torch.cuda.is_available()
-        if cuda_avail:
-            gpu_name = torch.cuda.get_device_name(0)
-            total_vram = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3), 2)
-            allocated_vram = round(torch.cuda.memory_allocated(0) / (1024 ** 2), 1)
-            reserved_vram = round(torch.cuda.memory_reserved(0) / (1024 ** 2), 1)
-            cuda_ver = torch.version.cuda
-            log(f"      ✅ NVIDIA GPU 検出: {gpu_name}")
-            log(f"      ✅ CUDA Version: {cuda_ver} (PyTorch {torch.__version__})")
-            log(f"      📊 VRAM 容量: 総量 {total_vram} GB (使用中: {allocated_vram} MB / 予約: {reserved_vram} MB)")
-            results["gpu"] = {
-                "pass": True,
-                "details": {
-                    "has_gpu": True,
-                    "gpu_name": gpu_name,
-                    "vram_gb": total_vram,
-                    "allocated_mb": allocated_vram,
-                    "reserved_mb": reserved_vram,
-                    "cuda_version": cuda_ver,
-                }
-            }
+    gpu_info = capability["gpu"]
+    if not capability["local_stt_ready"] and not capability["local_tts_ready"]:
+        # No local voice stack installed: report the hardware we found without
+        # pretending a missing torch is a diagnostic failure.
+        if gpu_info["has_gpu"]:
+            log(f"      ✅ NVIDIA GPU 検出: {gpu_info['gpu_name']} ({gpu_info.get('vram') or 'VRAM不明'})")
+            log("      ℹ️ ローカル音声エンジン (PyTorch) は未導入です。設定画面から追加インストールできます。")
         else:
-            log("      ⚠️ CUDA/GPU が利用できません (CPUモードで動作中)")
-            results["gpu"] = {
-                "pass": False,
-                "details": {"has_gpu": False, "message": "GPU / CUDA is not available"}
-            }
-    except Exception as e:
-        log(f"      ❌ GPU診断エラー: {e}")
-        results["gpu"] = {"pass": False, "details": {"error": str(e)}}
+            log(f"      ℹ️ 対応GPUは検出されませんでした ({gpu_info['gpu_name'] or '内蔵グラフィックス'})")
+            log("      ℹ️ この構成では音声合成に Web Speech API、音声認識にクラウドSTTを使用します。")
+        results["gpu"] = {
+            "pass": bool(gpu_info["has_gpu"]),
+            "details": {
+                "has_gpu": gpu_info["has_gpu"],
+                "gpu_name": gpu_info["gpu_name"],
+                "vram": gpu_info.get("vram"),
+                "detected_by": gpu_info.get("source"),
+                "local_engine_installed": False,
+                "installable_profile": capability["recommended_profile"],
+            },
+        }
+    else:
+        try:
+            import torch
+            cuda_avail = torch.cuda.is_available()
+            if cuda_avail:
+                gpu_name = torch.cuda.get_device_name(0)
+                total_vram = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3), 2)
+                allocated_vram = round(torch.cuda.memory_allocated(0) / (1024 ** 2), 1)
+                reserved_vram = round(torch.cuda.memory_reserved(0) / (1024 ** 2), 1)
+                cuda_ver = torch.version.cuda
+                log(f"      ✅ NVIDIA GPU 検出: {gpu_name}")
+                log(f"      ✅ CUDA Version: {cuda_ver} (PyTorch {torch.__version__})")
+                log(f"      📊 VRAM 容量: 総量 {total_vram} GB (使用中: {allocated_vram} MB / 予約: {reserved_vram} MB)")
+                results["gpu"] = {
+                    "pass": True,
+                    "details": {
+                        "has_gpu": True,
+                        "gpu_name": gpu_name,
+                        "vram_gb": total_vram,
+                        "allocated_mb": allocated_vram,
+                        "reserved_mb": reserved_vram,
+                        "cuda_version": cuda_ver,
+                    }
+                }
+            else:
+                log("      ⚠️ CUDA/GPU が利用できません (CPUモードで動作中)")
+                results["gpu"] = {
+                    "pass": False,
+                    "details": {"has_gpu": False, "message": "GPU / CUDA is not available"}
+                }
+        except Exception as e:
+            log(f"      ❌ GPU診断エラー: {e}")
+            results["gpu"] = {"pass": False, "details": {"error": str(e)}}
 
     # -------------------------------------------------------------
     # Step 2: TTS Engine (Irodori-TTS-Lite) Synthesis Diagnostic
     # -------------------------------------------------------------
     tts_text = "こんにちは！今日も元気にお手伝いしますね！"
-    log(f"[2/4] 音声合成エンジン (Irodori-TTS-Lite) のテスト中 (テスト文:「{tts_text}」)...")
     tts_start = time.time()
     generated_wav_bytes = b""
     tts_url = _resolve_tts_server_url()
-    log(f"      ターゲットTTSエンドポイント: {tts_url}")
 
-    try:
-        query_params = urllib.parse.urlencode({"text": tts_text, "steps": 6})
-        target_endpoint = f"{tts_url}/tts?{query_params}"
-        req = urllib.request.Request(
-            target_endpoint,
-            headers={"User-Agent": "HomeSpark-Diagnostics/1.0"}
-        )
-        loop = asyncio.get_running_loop()
-
-        def _fetch():
-            with urllib.request.urlopen(req, timeout=12.0) as res:
-                return res.read()
-
-        generated_wav_bytes = await loop.run_in_executor(None, _fetch)
-        tts_latency = int((time.time() - tts_start) * 1000)
-
-        if len(generated_wav_bytes) > 1000:
-            log(f"      ✅ 音声合成成功! レイテンシ: {tts_latency} ms, 出力サイズ: {len(generated_wav_bytes):,} bytes")
-            results["tts"] = {
-                "pass": True,
-                "details": {
-                    "latency_ms": tts_latency,
-                    "audio_bytes": len(generated_wav_bytes),
-                    "endpoint": tts_url,
-                    "test_text": tts_text,
-                }
-            }
+    if not expect_local_tts:
+        log("[2/4] 音声合成エンジンの構成を確認中...")
+        if capability["gpu"]["has_gpu"]:
+            log("      ℹ️ ローカル音声合成 (Irodori-TTS) は未導入です。")
+            log("      ℹ️ 現在はブラウザ内蔵の Web Speech API で発話します（追加導入で高品質化できます）。")
         else:
-            log(f"      ⚠️ 音声合成レスポンスが空または極小サイズです ({len(generated_wav_bytes)} bytes)")
-            results["tts"] = {
-                "pass": False,
-                "details": {"error": "Generated audio too small or fallback header", "endpoint": tts_url}
-            }
-    except Exception as e:
-        tts_latency = int((time.time() - tts_start) * 1000)
-        log(f"      ❌ TTS合成サーバー接続失敗 ({tts_latency} ms): {e}")
-        log("      ℹ️ 音声合成ワーカー (Port 8008) が起動していない可能性があります。")
+            log("      ℹ️ この PC は GPU 非搭載のため、ローカル音声合成は対象外です。")
+            log("      ℹ️ ブラウザ内蔵の Web Speech API で発話します（追加導入は不要です）。")
         results["tts"] = {
             "pass": False,
-            "details": {"error": str(e), "latency_ms": tts_latency, "endpoint": tts_url}
+            "skipped": True,
+            "details": {
+                "engine": "web_speech",
+                "reason": "local_tts_not_installed" if capability["gpu"]["has_gpu"] else "no_gpu",
+                "installable_profile": "tts" if capability["gpu"]["has_gpu"] else None,
+            },
         }
+    else:
+        log(f"[2/4] 音声合成エンジン (Irodori-TTS-Lite) のテスト中 (テスト文:「{tts_text}」)...")
+        log(f"      ターゲットTTSエンドポイント: {tts_url}")
+
+        try:
+            query_params = urllib.parse.urlencode({"text": tts_text, "steps": 6})
+            target_endpoint = f"{tts_url}/tts?{query_params}"
+            req = urllib.request.Request(
+                target_endpoint,
+                headers={"User-Agent": "HomeSpark-Diagnostics/1.0"}
+            )
+            loop = asyncio.get_running_loop()
+
+            def _fetch():
+                with urllib.request.urlopen(req, timeout=12.0) as res:
+                    return res.read()
+
+            generated_wav_bytes = await loop.run_in_executor(None, _fetch)
+            tts_latency = int((time.time() - tts_start) * 1000)
+
+            if len(generated_wav_bytes) > 1000:
+                log(f"      ✅ 音声合成成功! レイテンシ: {tts_latency} ms, 出力サイズ: {len(generated_wav_bytes):,} bytes")
+                results["tts"] = {
+                    "pass": True,
+                    "details": {
+                        "latency_ms": tts_latency,
+                        "audio_bytes": len(generated_wav_bytes),
+                        "endpoint": tts_url,
+                        "test_text": tts_text,
+                    }
+                }
+            else:
+                log(f"      ⚠️ 音声合成レスポンスが空または極小サイズです ({len(generated_wav_bytes)} bytes)")
+                results["tts"] = {
+                    "pass": False,
+                    "details": {"error": "Generated audio too small or fallback header", "endpoint": tts_url}
+                }
+        except Exception as e:
+            tts_latency = int((time.time() - tts_start) * 1000)
+            log(f"      ❌ TTS合成サーバー接続失敗 ({tts_latency} ms): {e}")
+            log(f"      ℹ️ 音声合成ワーカー ({tts_url}) が起動していない可能性があります。")
+            results["tts"] = {
+                "pass": False,
+                "details": {"error": str(e), "latency_ms": tts_latency, "endpoint": tts_url}
+            }
 
     # -------------------------------------------------------------
     # Step 3: STT Engine (faster-whisper) Transcription Diagnostic
     # -------------------------------------------------------------
-    log("[3/4] 音声認識エンジン (Faster-Whisper Large-v3) のテスト中...")
     stt_start = time.time()
-    try:
-        transcribed_text = ""
-        # If we successfully generated TTS audio, transcribe it to test round-trip
-        audio_to_transcribe = generated_wav_bytes if len(generated_wav_bytes) > 1000 else None
 
-        if not audio_to_transcribe:
-            log("      ℹ️ TTS音声が生成されなかったため、内蔵モデルのロード状態を直接テストします...")
-
-        # Test local dedicated STT first
-        try:
-            boundary = "----WebKitFormBoundary" + secrets.token_hex(16)
-            dummy_content = audio_to_transcribe or (b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00")
-            body = (
-                f"--{boundary}\r\n"
-                f'Content-Disposition: form-data; name="file"; filename="test.wav"\r\n'
-                f'Content-Type: audio/wav\r\n\r\n'
-            ).encode("utf-8") + dummy_content + f"\r\n--{boundary}--\r\n".encode("utf-8")
-
-            req = urllib.request.Request(
-                f"{tts_url}/transcribe",
-                data=body,
-                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-            )
-
-            def _stt_fetch():
-                with urllib.request.urlopen(req, timeout=8.0) as res:
-                    return json.loads(res.read().decode("utf-8"))
-
-            loop = asyncio.get_running_loop()
-            stt_data = await loop.run_in_executor(None, _stt_fetch)
-            transcribed_text = stt_data.get("text", "").strip()
-            log(f"      ✅ 専用 Whisper サーバー (Port 8008) 応答: 「{transcribed_text or '(無音検知)'}」")
-        except Exception as stt_err:
-            log(f"      ℹ️ 専用 Whisper サーバー未応答 ({stt_err})。内蔵 Whisper エンジンを検証します...")
-            whisper_inst = _get_in_process_whisper()
-            if whisper_inst is not None:
-                log("      ✅ 内蔵 Faster-Whisper モデルの初期化 & VRAM 常駐を確認しました。")
-                transcribed_text = "内蔵Whisper準備完了"
-            else:
-                log("      ⚠️ 内蔵 Faster-Whisper モデルの初期化に失敗しました。")
-
-        stt_latency = int((time.time() - stt_start) * 1000)
+    if not expect_local_stt:
+        log("[3/4] 音声認識エンジンの構成を確認中...")
+        log("      ℹ️ ローカル Whisper は未導入のため、クラウドSTT (Gemini / Whisper API) を使用します。")
+        if capability["recommended_profile"] in ("gpu", "cpu"):
+            profile_label = voice_runtime.INSTALL_PROFILES[capability["recommended_profile"]]["label"]
+            log(f"      ℹ️ 設定画面から「{profile_label}」を追加導入すると、オフラインでも音声認識できます。")
         results["stt"] = {
-            "pass": bool(transcribed_text),
+            "pass": False,
+            "skipped": True,
             "details": {
-                "latency_ms": stt_latency,
-                "transcribed_text": transcribed_text,
-            }
+                "engine": "cloud",
+                "reason": "local_stt_not_installed",
+                "installable_profile": capability["recommended_profile"],
+            },
         }
-    except Exception as e:
-        stt_latency = int((time.time() - stt_start) * 1000)
-        log(f"      ❌ STT文字起こしテスト失敗 ({stt_latency} ms): {e}")
-        results["stt"] = {"pass": False, "details": {"error": str(e), "latency_ms": stt_latency}}
+    else:
+        log("[3/4] 音声認識エンジン (Faster-Whisper Large-v3) のテスト中...")
+        try:
+            transcribed_text = ""
+            # If we successfully generated TTS audio, transcribe it to test round-trip
+            audio_to_transcribe = generated_wav_bytes if len(generated_wav_bytes) > 1000 else None
+
+            if not audio_to_transcribe:
+                log("      ℹ️ TTS音声が生成されなかったため、内蔵モデルのロード状態を直接テストします...")
+
+            # Test local dedicated STT first
+            try:
+                boundary = "----WebKitFormBoundary" + secrets.token_hex(16)
+                dummy_content = audio_to_transcribe or (b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80>\x00\x00\x00}\x00\x00\x02\x00\x10\x00data\x00\x00\x00\x00")
+                body = (
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="file"; filename="test.wav"\r\n'
+                    f'Content-Type: audio/wav\r\n\r\n'
+                ).encode("utf-8") + dummy_content + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+                req = urllib.request.Request(
+                    f"{tts_url}/transcribe",
+                    data=body,
+                    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                )
+
+                def _stt_fetch():
+                    with urllib.request.urlopen(req, timeout=8.0) as res:
+                        return json.loads(res.read().decode("utf-8"))
+
+                loop = asyncio.get_running_loop()
+                stt_data = await loop.run_in_executor(None, _stt_fetch)
+                transcribed_text = stt_data.get("text", "").strip()
+                log(f"      ✅ 専用 Whisper サーバー ({tts_url}) 応答: 「{transcribed_text or '(無音検知)'}」")
+            except Exception as stt_err:
+                log(f"      ℹ️ 専用 Whisper サーバー未応答 ({stt_err})。内蔵 Whisper エンジンを検証します...")
+                whisper_inst = _get_in_process_whisper()
+                if whisper_inst is not None:
+                    log("      ✅ 内蔵 Faster-Whisper モデルの初期化 & VRAM 常駐を確認しました。")
+                    transcribed_text = "内蔵Whisper準備完了"
+                else:
+                    log("      ⚠️ 内蔵 Faster-Whisper モデルの初期化に失敗しました。")
+
+            stt_latency = int((time.time() - stt_start) * 1000)
+            results["stt"] = {
+                "pass": bool(transcribed_text),
+                "details": {
+                    "latency_ms": stt_latency,
+                    "transcribed_text": transcribed_text,
+                }
+            }
+        except Exception as e:
+            stt_latency = int((time.time() - stt_start) * 1000)
+            log(f"      ❌ STT文字起こしテスト失敗 ({stt_latency} ms): {e}")
+            results["stt"] = {"pass": False, "details": {"error": str(e), "latency_ms": stt_latency}}
 
     # -------------------------------------------------------------
     # Step 4: LLM Conversational Persona & Reasoning Diagnostic
@@ -1820,16 +1949,29 @@ async def run_voice_diagnostics():
     # Final overall assessment
     total_latency = int((time.time() - start_total) * 1000)
     results["total_latency_ms"] = total_latency
-    all_passed = results["tts"]["pass"] and results["llm"]["pass"]
+    # A component that this configuration is not expected to run counts as OK:
+    # a GPU-less machine using Web Speech + cloud STT is fully supported.
+    tts_ok = results["tts"]["pass"] or results["tts"].get("skipped", False)
+    stt_ok = results["stt"]["pass"] or results["stt"].get("skipped", False)
+    all_passed = tts_ok and stt_ok and results["llm"]["pass"]
     results["overall_pass"] = all_passed
+    results["voice_ready"] = all_passed
+    results["local_voice_active"] = results["tts"]["pass"] and results["stt"]["pass"]
 
     log("==================================================================")
-    if all_passed:
-        log(f"🎉 【総合診断結果: 合格 (PASS)】 リアルタイム音声会話は正常に動作可能です！ (合計所要時間: {total_latency} ms)")
+    if all_passed and mode == "local_gpu":
+        log(f"🎉 【総合診断結果: 合格 (PASS)】 ローカルGPUによるリアルタイム音声会話が利用できます！ (合計所要時間: {total_latency} ms)")
+    elif all_passed:
+        log(f"✅ 【総合診断結果: 合格 (PASS)】 {_MODE_LABELS.get(mode, mode)} で音声会話が利用できます (合計所要時間: {total_latency} ms)")
+        if capability["recommended_profile"]:
+            profile_label = voice_runtime.INSTALL_PROFILES[capability["recommended_profile"]]["label"]
+            log(f"    - 任意: 設定画面から「{profile_label}」を追加導入すると、ローカル処理に切り替わります。")
     else:
         log(f"⚠️ 【総合診断結果: 要確認 (WARNING/FAIL)】 一部のコンポーネントで問題が検出されました (所要時間: {total_latency} ms)")
-        if not results["tts"]["pass"]:
-            log("    - TTS音声合成が未起動です。GPU環境および app_voice.py の稼働状態をご確認ください。")
+        if not tts_ok:
+            log(f"    - ローカルTTSサーバー ({tts_url}) が応答しません。app_voice.py の稼働状態をご確認ください。")
+        if not stt_ok:
+            log("    - ローカル音声認識モデルの初期化に失敗しました。VRAM残量とモデルキャッシュをご確認ください。")
         if not results["llm"]["pass"]:
             log(f"    - LLMプロバイダ ({active_prov}) への接続が失敗しました。APIキーまたはエンドポイントをご確認ください。")
     log("==================================================================")

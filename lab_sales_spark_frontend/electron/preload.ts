@@ -39,10 +39,21 @@ export interface ElectronAPI {
   setAppConfig: (config: Record<string, any>) => Promise<{ success: boolean }>;
 }
 
+// preload is compiled to dist-electron/preload.js, so ../package.json is the
+// app's own manifest both in dev and inside the packaged asar. Reading it keeps
+// this in lockstep with the version electron-builder ships.
+const PACKAGE_VERSION: string = (() => {
+  try {
+    return (require("../package.json") as { version: string }).version;
+  } catch {
+    return "0.0.0";
+  }
+})();
+
 const electronAPI: ElectronAPI = {
   isElectron: true,
   platform: process.platform,
-  appVersion: "3.2.0",
+  appVersion: PACKAGE_VERSION,
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   minimize: () => ipcRenderer.send("window-minimize"),
   maximize: () => ipcRenderer.send("window-maximize"),

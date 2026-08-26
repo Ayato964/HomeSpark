@@ -2,6 +2,36 @@ import { ChatEvent, MessageContentItem, Person, UserProfile, ImapAccount } from 
 import { getBackendBaseUrl } from '../utils/platform';
 import { notifySessionExpired } from './auth';
 
+/** Effective voice configuration of the machine the backend runs on. */
+export type VoiceMode = 'local_gpu' | 'local_stt' | 'cloud';
+
+/** Installable local-voice bundles offered by the backend. */
+export type VoiceProfileId = 'cpu' | 'gpu' | 'tts';
+
+export interface VoiceCapability {
+  mode: VoiceMode;
+  gpu: { has_gpu: boolean; gpu_name: string | null; vram: string | null; source: string };
+  local_stt_ready: boolean;
+  local_tts_ready: boolean;
+  missing_stt_modules: string[];
+  missing_tts_modules: string[];
+  recommended_profile: VoiceProfileId | null;
+  installable: boolean;
+  python_executable?: string;
+  profiles: Record<string, { label: string; size_hint: string; note: string }>;
+  error?: string;
+}
+
+export interface VoiceInstallStatus {
+  state: 'idle' | 'running' | 'success' | 'error';
+  profile: VoiceProfileId | null;
+  step_index: number;
+  step_total: number;
+  step_label: string;
+  error: string | null;
+  logs: string[];
+}
+
 export class ChatService {
   private backendUrl: string;
 
@@ -840,12 +870,48 @@ export class ChatService {
   }
 
   /** Run end-to-end voice AI diagnostics suite (GPU, TTS, STT, LLM). */
+  /** Which voice profile this machine can run, and what is installable. */
+  public async getVoiceCapability(): Promise<VoiceCapability> {
+    const response = await fetch(`${this.backendUrl}/api/system/voice-capability`, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`音声構成の取得に失敗しました: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /** Start installing the local voice engine into the embedded Python runtime. */
+  public async installVoiceEngine(profile: VoiceProfileId): Promise<{ started: boolean; reason?: string }> {
+    const response = await fetch(`${this.backendUrl}/api/system/voice-engine/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `音声エンジン導入の開始に失敗しました: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /** Poll the progress of a running/finished voice engine install. */
+  public async getVoiceEngineInstallStatus(): Promise<VoiceInstallStatus> {
+    const response = await fetch(`${this.backendUrl}/api/system/voice-engine/install-status`, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`導入状況の取得に失敗しました: ${response.status}`);
+    }
+    return response.json();
+  }
+
   public async runVoiceDiagnostics(): Promise<{
     status: string;
     overall_pass: boolean;
+    mode?: VoiceMode;
+    capability?: VoiceCapability;
+    voice_ready?: boolean;
+    local_voice_active?: boolean;
     gpu: { pass: boolean; details: any };
-    tts: { pass: boolean; details: any };
-    stt: { pass: boolean; details: any };
+    tts: { pass: boolean; skipped?: boolean; details: any };
+    stt: { pass: boolean; skipped?: boolean; details: any };
     llm: { pass: boolean; details: any };
     logs: string[];
     total_latency_ms: number;

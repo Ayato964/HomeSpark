@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Convo } from '../types/chat';
 import { UserProfile } from '../services/auth';
+import { APP_VERSION } from '../constants/version';
 
 interface SidebarProps {
   convos: Record<string, Convo>;
@@ -113,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
           <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '15px', fontWeight: 600, letterSpacing: '.10em', color: 'var(--text)' }}>HOMESPARK</span>
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo 3.2.0</span>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo {APP_VERSION}</span>
         </div>
       </div>
 

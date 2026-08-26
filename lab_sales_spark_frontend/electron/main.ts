@@ -417,6 +417,23 @@ async function checkGpuPresent(venvPython: string): Promise<boolean> {
   return false;
 }
 
+// The installer ships a slim embedded Python (requirements.txt only), so the
+// heavy voice stack may simply not be there. Spawning app_voice.py without it
+// just produces a process that dies on `import torch`, which then surfaces as a
+// confusing "connection refused" in the startup diagnostics.
+async function checkLocalTtsStack(venvPython: string): Promise<boolean> {
+  if (!fs.existsSync(venvPython)) return false;
+  try {
+    await execAsync(
+      `"${venvPython}" -c "import torch, scipy, pyopenjtalk, irodori_tts_lite"`,
+      { timeout: 20000 }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Find splash.html or return fallback data URL
 function getSplashHtmlUrl(): string {
   const candidates = [
@@ -559,8 +576,16 @@ async function ensureBackendServices() {
     addStartupLog(`FastAPI backend is already active on port ${resolvedBackendPort}`);
   }
 
-  // 4. Ensure Local TTS Engine ONLY IF GPU IS PRESENT
-  if (hasGpu) {
+  // 4. Ensure Local TTS Engine ONLY IF GPU IS PRESENT *and* the engine is installed
+  const hasLocalTtsStack = hasGpu ? await checkLocalTtsStack(venvPython) : false;
+  if (hasGpu && !hasLocalTtsStack) {
+    addStartupLog(
+      "Local voice engine (torch/Irodori-TTS) is not installed in the bundled Python runtime. " +
+      "Skipping app_voice.py; the app will use Web Speech synthesis. " +
+      "Install it from 設定 > 音声 > 音声エンジン構成."
+    );
+  }
+  if (hasGpu && hasLocalTtsStack) {
     updateSplash(`Irodori-TTS & Whisper 音声エンジンを起動中 (${resolvedTtsPort})...`, 85, "CUDA 高速音声推論");
     const ttsAlive = await checkPortAlive(resolvedTtsPort);
     if (!ttsAlive) {
@@ -608,8 +633,10 @@ async function ensureBackendServices() {
         }
       }
     }
+  } else if (hasGpu) {
+    updateSplash("ローカル音声エンジン未導入: Web Speech API で発話します", 85, "設定画面から追加導入できます");
   } else {
-    updateSplash("GPU非搭載環境: 音声合成エンジンの起動をスキップしました", 85, "軽量テキストチャットモード");
+    updateSplash("GPU非搭載環境: Web Speech API で発話します", 85, "クラウド音声構成");
   }
 
   updateSplash("準備完了！HomeSpark GeMo を起動します...", 95);

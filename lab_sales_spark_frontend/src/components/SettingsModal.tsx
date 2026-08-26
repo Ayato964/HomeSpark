@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatService } from '../services/ChatService';
+import { ChatService, VoiceCapability, VoiceInstallStatus, VoiceProfileId } from '../services/ChatService';
 import { isDesktopApp, getBackendBaseUrl } from '../utils/platform';
 import { UpdateStatusData } from '../types/electron';
+import { APP_VERSION } from '../constants/version';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -23,7 +24,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   // Auto-updater state
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
-  const [currentVersion, setCurrentVersion] = useState<string>('3.2.0');
+  const [currentVersion, setCurrentVersion] = useState<string>(APP_VERSION);
+
+  // Local voice engine (post-install) state
+  const [voiceCap, setVoiceCap] = useState<VoiceCapability | null>(null);
+  const [voiceCapLoading, setVoiceCapLoading] = useState<boolean>(false);
+  const [voiceCapError, setVoiceCapError] = useState<string | null>(null);
+  const [installStatus, setInstallStatus] = useState<VoiceInstallStatus | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<VoiceProfileId | null>(null);
+  const installLogRef = useRef<HTMLDivElement>(null);
 
   // Multi-Provider LLM state
   const [activeProvider, setActiveProvider] = useState<'gemini' | 'openai' | 'custom_vllm' | 'local_vllm'>('custom_vllm');
@@ -98,6 +107,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       stopMicTest();
     };
   }, []);
+
+  // ------------------------------------------------------------------ //
+  // Local voice engine: capability + on-demand install
+  // ------------------------------------------------------------------ //
+  const refreshVoiceCapability = async () => {
+    setVoiceCapLoading(true);
+    setVoiceCapError(null);
+    try {
+      const [cap, status] = await Promise.all([
+        chatService.getVoiceCapability(),
+        chatService.getVoiceEngineInstallStatus().catch(() => null),
+      ]);
+      if (!isMountedRef.current) return;
+      setVoiceCap(cap);
+      setSelectedProfile((prev) => prev || cap.recommended_profile);
+      if (status) setInstallStatus(status);
+    } catch (e: any) {
+      if (!isMountedRef.current) return;
+      setVoiceCapError(e?.message || '音声構成を取得できませんでした');
+    } finally {
+      if (isMountedRef.current) setVoiceCapLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'audio') {
+      refreshVoiceCapability();
+    }
+  }, [isOpen, activeTab]);
+
+  // Poll while an install is in flight; re-read the capability once it lands so
+  // the card flips to "導入済み" without the user reopening the tab.
+  useEffect(() => {
+    if (installStatus?.state !== 'running') return;
+    const timer = setInterval(async () => {
+      try {
+        const status = await chatService.getVoiceEngineInstallStatus();
+        if (!isMountedRef.current) return;
+        setInstallStatus(status);
+        if (status.state === 'success') {
+          chatService.getVoiceCapability().then((cap) => {
+            if (isMountedRef.current) setVoiceCap(cap);
+          }).catch(() => {});
+        }
+      } catch {
+        // Transient poll failure: keep the last known state and retry.
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [installStatus?.state]);
+
+  useEffect(() => {
+    if (installLogRef.current) {
+      installLogRef.current.scrollTop = installLogRef.current.scrollHeight;
+    }
+  }, [installStatus?.logs]);
+
+  const handleInstallVoiceEngine = async () => {
+    if (!selectedProfile || installStatus?.state === 'running') return;
+    try {
+      await chatService.installVoiceEngine(selectedProfile);
+      const status = await chatService.getVoiceEngineInstallStatus();
+      if (isMountedRef.current) setInstallStatus(status);
+    } catch (e: any) {
+      if (isMountedRef.current) {
+        setVoiceCapError(e?.message || '音声エンジンの導入を開始できませんでした');
+      }
+    }
+  };
 
   // Load Audio Devices
   const loadAudioDevices = async () => {
@@ -1423,6 +1501,209 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <p style={{ margin: 0, fontSize: '12px', color: 'var(--text3)' }}>
                   音声会話機能の稼働状況の再確認、および入力マイク・出力スピーカーの選択と動作テストを行います。
                 </p>
+              </div>
+
+              {/* 0. Local Voice Engine (GPU / non-GPU spec + on-demand install) */}
+              <div
+                style={{
+                  padding: '16px 18px',
+                  borderRadius: '14px',
+                  background: 'var(--panel2)',
+                  border: '1px solid var(--border2)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                      音声エンジン構成
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text3)', marginTop: '2px' }}>
+                      この PC で音声合成・音声認識をどこで実行するかの設定です。
+                    </div>
+                  </div>
+                  <button
+                    onClick={refreshVoiceCapability}
+                    disabled={voiceCapLoading}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      color: 'var(--text2)',
+                      background: 'var(--panel)',
+                      border: '1px solid var(--border2)',
+                      borderRadius: '8px',
+                      cursor: voiceCapLoading ? 'default' : 'pointer',
+                      opacity: voiceCapLoading ? 0.6 : 1,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {voiceCapLoading ? '確認中...' : '再確認'}
+                  </button>
+                </div>
+
+                {voiceCapError && (
+                  <div style={{ fontSize: '11.5px', color: '#ef4444' }}>{voiceCapError}</div>
+                )}
+
+                {voiceCap && (
+                  <>
+                    {/* Current configuration summary */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '90px 1fr',
+                        gap: '6px 12px',
+                        fontSize: '12px',
+                        padding: '12px',
+                        borderRadius: '10px',
+                        background: 'var(--panel)',
+                        border: '1px solid var(--border2)',
+                      }}
+                    >
+                      <span style={{ color: 'var(--text3)' }}>GPU</span>
+                      <span style={{ color: 'var(--text)' }}>
+                        {voiceCap.gpu.has_gpu
+                          ? `${voiceCap.gpu.gpu_name}${voiceCap.gpu.vram ? ` (${voiceCap.gpu.vram})` : ''}`
+                          : `非搭載 / 非対応 (${voiceCap.gpu.gpu_name || '不明'})`}
+                      </span>
+
+                      <span style={{ color: 'var(--text3)' }}>音声合成</span>
+                      <span style={{ color: 'var(--text)' }}>
+                        {voiceCap.local_tts_ready && voiceCap.gpu.has_gpu
+                          ? 'ローカル Irodori-TTS (高品質)'
+                          : 'Web Speech API (ブラウザ内蔵)'}
+                      </span>
+
+                      <span style={{ color: 'var(--text3)' }}>音声認識</span>
+                      <span style={{ color: 'var(--text)' }}>
+                        {voiceCap.local_stt_ready
+                          ? `ローカル faster-whisper (${voiceCap.gpu.has_gpu ? 'CUDA float16' : 'CPU int8'})`
+                          : 'クラウド STT (Gemini / Whisper API)'}
+                      </span>
+                    </div>
+
+                    {!voiceCap.installable && (
+                      <div style={{ fontSize: '11.5px', color: 'var(--text3)', lineHeight: 1.6 }}>
+                        {voiceCap.gpu.has_gpu
+                          ? 'この PC で利用可能な音声エンジンはすべて導入済みです。'
+                          : 'GPU 非搭載のため、この構成が最適です。追加インストールは不要です。'}
+                      </div>
+                    )}
+
+                    {/* Installable profiles */}
+                    {voiceCap.installable && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ fontSize: '11.5px', color: 'var(--text3)', lineHeight: 1.6 }}>
+                          ローカル処理を有効にすると、オフラインでも動作し応答が速くなります。
+                          ダウンロードは同梱の Python 環境に対して行われ、他のアプリには影響しません。
+                        </div>
+                        {Object.entries(voiceCap.profiles)
+                          .filter(([id]) =>
+                            id === voiceCap.recommended_profile ||
+                            (id === 'tts' && voiceCap.gpu.has_gpu && !voiceCap.local_tts_ready))
+                          .map(([id, prof]) => (
+                            <label
+                              key={id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '10px',
+                                padding: '10px 12px',
+                                borderRadius: '10px',
+                                background: selectedProfile === id ? 'rgba(66,133,244,0.08)' : 'var(--panel)',
+                                border: `1px solid ${selectedProfile === id ? '#4285F4' : 'var(--border2)'}`,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="voice-engine-profile"
+                                checked={selectedProfile === id}
+                                onChange={() => setSelectedProfile(id as VoiceProfileId)}
+                                style={{ marginTop: '2px' }}
+                              />
+                              <span style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                <span style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text)' }}>
+                                  {prof.label}
+                                </span>
+                                <span style={{ fontSize: '11px', color: 'var(--text3)', lineHeight: 1.5 }}>
+                                  {prof.note}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+
+                        <button
+                          onClick={handleInstallVoiceEngine}
+                          disabled={!selectedProfile || installStatus?.state === 'running'}
+                          style={{
+                            alignSelf: 'flex-start',
+                            padding: '9px 18px',
+                            fontSize: '12.5px',
+                            fontWeight: 600,
+                            color: '#fff',
+                            background: installStatus?.state === 'running' ? 'var(--text3)' : '#4285F4',
+                            border: 'none',
+                            borderRadius: '9px',
+                            cursor: installStatus?.state === 'running' ? 'default' : 'pointer',
+                          }}
+                        >
+                          {installStatus?.state === 'running' ? '導入中...' : '選択したエンジンを導入'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Install progress */}
+                {installStatus && installStatus.state !== 'idle' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          color:
+                            installStatus.state === 'error'
+                              ? '#ef4444'
+                              : installStatus.state === 'success'
+                              ? '#10b981'
+                              : 'var(--text2)',
+                        }}
+                      >
+                        {installStatus.state === 'running'
+                          ? `[${installStatus.step_index}/${installStatus.step_total}] ${installStatus.step_label}`
+                          : installStatus.state === 'success'
+                          ? '導入完了 - アプリを再起動すると有効になります'
+                          : `導入失敗: ${installStatus.error || '不明なエラー'}`}
+                      </span>
+                    </div>
+                    <div
+                      ref={installLogRef}
+                      style={{
+                        height: '120px',
+                        overflowY: 'auto',
+                        padding: '8px 10px',
+                        borderRadius: '9px',
+                        background: 'rgba(0,0,0,0.35)',
+                        border: '1px solid var(--border2)',
+                        fontFamily: '"Consolas", "Courier New", monospace',
+                        fontSize: '10.5px',
+                        lineHeight: 1.5,
+                        color: '#94a3b8',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                        userSelect: 'text',
+                      }}
+                    >
+                      {installStatus.logs.length > 0
+                        ? installStatus.logs.join('\n')
+                        : 'ログを待機中...'}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 1. Voice Capability Re-check Card */}

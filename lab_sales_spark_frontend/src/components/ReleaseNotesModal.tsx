@@ -1,4 +1,5 @@
 import React from 'react';
+import { APP_VERSION } from '../constants/version';
 
 interface ReleaseNotesModalProps {
   isOpen: boolean;
@@ -6,7 +7,7 @@ interface ReleaseNotesModalProps {
 }
 
 export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, onClose }) => {
-  const [appVersion, setAppVersion] = React.useState<string>('3.2.0');
+  const [appVersion, setAppVersion] = React.useState<string>(APP_VERSION);
 
   React.useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).electronAPI?.getAppVersion) {
@@ -101,10 +102,26 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           flexDirection: 'column',
           gap: '24px'
         }}>
-          {/* Latest Version 3.2.0 */}
+          {/* Latest Version 3.3.0 */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <span style={{ fontSize: '11px', fontWeight: 600, background: '#4285F4', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.{appVersion}</span>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-26</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>
+              <li><strong>GPU の有無で音声構成を自動的に切り替え</strong>: GPU 非搭載機は Web Speech API + クラウド STT を正式構成として扱い、起動診断でエラー表示されなくなりました。</li>
+              <li><strong>ローカル音声エンジンのアプリ内インストール</strong>: 設定 &gt; 音声 &gt; 音声エンジン構成 から、音声認識 (CPU/GPU) と音声合成 Irodori-TTS を後から追加導入できます。進捗とログをその場で確認できます。</li>
+              <li><strong>Google 連携の「Token used too early」エラーを解消</strong>: PC の時計が数十秒ずれていても id_token 検証が失敗しないよう許容誤差を導入しました。</li>
+              <li><strong>ログインをスキップした直後に音声チェックが再実行される問題を修正</strong>: 起動診断は 1 回の起動につき 1 度だけ実行されます。</li>
+              <li><strong>「Spark からのお知らせ」を一度閉じたら再表示しないように</strong>: 時間帯ごとに既読フラグを保持するようになりました。</li>
+              <li><strong>起動診断の精度向上</strong>: 実際に使用中の TTS ポートを表示し、音声認識の結果も総合判定に反映するようになりました。</li>
+            </ul>
+          </div>
+
+          {/* ver 3.2.0 */}
+          <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, background: 'var(--border3)', color: 'var(--text)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.3.2.0</span>
               <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-26</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>

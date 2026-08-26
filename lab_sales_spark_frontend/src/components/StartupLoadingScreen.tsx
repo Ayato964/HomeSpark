@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { getBackendBaseUrl, isDesktopApp } from '../utils/platform';
-import { ChatService } from '../services/ChatService';
+import { ChatService, VoiceCapability } from '../services/ChatService';
 
 interface StartupLoadingScreenProps {
   onComplete: (status: { voiceSupported: boolean }) => void;
@@ -33,8 +33,16 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
   const [copied, setCopied] = useState<boolean>(false);
   const [isFinishing, setIsFinishing] = useState<boolean>(false);
   const [voiceSupported, setVoiceSupported] = useState<boolean>(false);
+  const [capability, setCapability] = useState<VoiceCapability | null>(null);
 
   const logRef = useRef<HTMLDivElement>(null);
+  // `runStartupDiagnostics` finishes inside a timeout, after which the state
+  // snapshot it closed over is stale - read the latest value through a ref.
+  const voiceSupportedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    voiceSupportedRef.current = voiceSupported;
+  }, [voiceSupported]);
 
   const addLog = (msg: string) => {
     const ts = new Date().toLocaleTimeString('ja-JP', { hour12: false });
@@ -133,9 +141,18 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
         }
       }
 
-      // Check GPU & TTS
+      // Check GPU & TTS. `skipped` means this machine is not expected to run a
+      // local engine at all (no GPU / engine not installed) - that is a
+      // supported configuration, not a fault, so it must not read as a warning.
       if (diag.tts?.pass) {
         updateStep(2, { status: 'success', subLabel: `Irodori-TTS 合成成功 (${diag.tts.details?.latency_ms || 0}ms)` });
+      } else if (diag.tts?.skipped) {
+        updateStep(2, {
+          status: 'success',
+          subLabel: diag.tts.details?.reason === 'no_gpu'
+            ? 'GPU非搭載構成: Web Speech API で発話します'
+            : 'ローカルTTS未導入: Web Speech API で発話します',
+        });
       } else {
         updateStep(2, {
           status: 'warning',
@@ -146,8 +163,16 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
       }
 
       // Check STT & LLM
+      const sttNote = diag.stt?.pass
+        ? 'ローカルWhisper常駐'
+        : diag.stt?.skipped
+        ? 'クラウドSTT'
+        : 'STT要確認';
       if (diag.llm?.pass) {
-        updateStep(3, { status: 'success', subLabel: `LLM 接続確認完了 (${diag.llm.details?.provider || 'API'})` });
+        updateStep(3, {
+          status: 'success',
+          subLabel: `${sttNote} / LLM 接続確認完了 (${diag.llm.details?.provider || 'API'})`,
+        });
       } else {
         updateStep(3, {
           status: 'warning',
@@ -156,8 +181,12 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
         });
       }
 
-      const voiceAvail = Boolean(diag.tts?.pass);
-      setVoiceSupported(voiceAvail);
+      if (diag.capability) {
+        setCapability(diag.capability);
+      }
+      // Voice conversation only truly needs the LLM: synthesis falls back to
+      // Web Speech and recognition falls back to cloud STT.
+      setVoiceSupported(Boolean(diag.llm?.pass));
     } catch (diagErr: any) {
       addLog(`⚠️ 音声診断 API エラー (${diagErr?.message || diagErr})。基本テキストモードで初期化を継続します。`);
       updateStep(2, { status: 'warning', subLabel: '音声エンジン診断スキップ' });
@@ -179,7 +208,7 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
     setTimeout(() => {
       setIsFinishing(true);
       setTimeout(() => {
-        onComplete({ voiceSupported: true });
+        onComplete({ voiceSupported: voiceSupportedRef.current });
       }, 500);
     }, 600);
   };
@@ -296,9 +325,34 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
         >
           HomeSpark GeMo
         </h1>
-        <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 24px 0' }}>
+        <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 12px 0' }}>
           専属秘書 GeMo - システム初期化 & 音声機能チェック
         </p>
+
+        {/* Which voice configuration this machine resolved to */}
+        {capability && (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '5px 12px',
+              marginBottom: '20px',
+              borderRadius: '999px',
+              fontSize: '11px',
+              fontWeight: 600,
+              color: capability.mode === 'local_gpu' ? '#2dd4bf' : '#c7d2fe',
+              background: capability.mode === 'local_gpu' ? 'rgba(45, 212, 191, 0.12)' : 'rgba(99, 102, 241, 0.14)',
+              border: `1px solid ${capability.mode === 'local_gpu' ? 'rgba(45,212,191,0.3)' : 'rgba(99,102,241,0.3)'}`,
+            }}
+          >
+            {capability.mode === 'local_gpu'
+              ? `ローカルGPU構成 - ${capability.gpu.gpu_name || 'CUDA'}`
+              : capability.mode === 'local_stt'
+              ? 'ハイブリッド構成 - ローカル音声認識 / Web Speech 発話'
+              : 'クラウド構成 - Web Speech 発話 / クラウド音声認識'}
+          </div>
+        )}
 
         {/* Progress Bar */}
         <div style={{ width: '100%', marginBottom: '24px' }}>
