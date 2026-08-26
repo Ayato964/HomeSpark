@@ -164,7 +164,7 @@
     // Listen for IPC messages from main process
     if (window.electronAPI && window.electronAPI.onSubtitleMessage) {
       window.electronAPI.onSubtitleMessage((data) => {
-        if (!data || !data.text) {
+        if (!data || !data.text || data.text.includes('お話しください') || data.text === '') {
           container.classList.remove("visible");
           return;
         }

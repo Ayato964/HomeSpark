@@ -31,13 +31,18 @@ export interface ElectronAPI {
   restartAndInstallUpdate: () => void;
   onUpdateStatus: (callback: (data: UpdateStatusData) => void) => () => void;
   getBackendPort: () => Promise<number>;
+  getStartupLogs: () => Promise<string[]>;
   openExternal: (url: string) => void;
+  getOnboardingStatus: () => Promise<{ onboardingDone: boolean; voiceSupported: boolean }>;
+  setOnboardingComplete: (voiceEnabled: boolean) => Promise<{ success: boolean }>;
+  getAppConfig: () => Promise<Record<string, any>>;
+  setAppConfig: (config: Record<string, any>) => Promise<{ success: boolean }>;
 }
 
 const electronAPI: ElectronAPI = {
   isElectron: true,
   platform: process.platform,
-  appVersion: "3.1.15",
+  appVersion: "3.2.0",
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   minimize: () => ipcRenderer.send("window-minimize"),
   maximize: () => ipcRenderer.send("window-maximize"),
@@ -73,7 +78,13 @@ const electronAPI: ElectronAPI = {
     };
   },
   getBackendPort: () => ipcRenderer.invoke("get-backend-port"),
+  getStartupLogs: () => ipcRenderer.invoke("get-startup-logs"),
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
+  getOnboardingStatus: () => ipcRenderer.invoke("get-onboarding-status"),
+  setOnboardingComplete: (voiceEnabled: boolean) =>
+    ipcRenderer.invoke("set-onboarding-complete", { voiceEnabled }),
+  getAppConfig: () => ipcRenderer.invoke("get-app-config"),
+  setAppConfig: (config: Record<string, any>) => ipcRenderer.invoke("set-app-config", config),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", electronAPI);

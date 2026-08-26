@@ -13,6 +13,9 @@ set ROOT_DIR=%~dp0
 set BACKEND_DIR=%ROOT_DIR%lab_sales_spark_backend
 set FRONTEND_DIR=%ROOT_DIR%lab_sales_spark_frontend
 set VENV_PYTHON=%BACKEND_DIR%\.venv\Scripts\python.exe
+if not exist "%VENV_PYTHON%" (
+    set VENV_PYTHON=%BACKEND_DIR%\python_runtime\python.exe
+)
 
 :: 1. Check & Start Backend Server (Port 8080)
 netstat -ano | findstr :8080 > nul

@@ -74,7 +74,7 @@
       letter-spacing: 0.02em;
     }
     .progress-box {
-      width: 320px;
+      width: 340px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -109,6 +109,54 @@
       color: #64748b;
       text-align: center;
     }
+    .error-box {
+      display: none;
+      width: 360px;
+      flex-direction: column;
+      gap: 6px;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-radius: 10px;
+      padding: 10px;
+      margin-top: 8px;
+      text-align: left;
+    }
+    .error-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #f87171;
+    }
+    .error-log {
+      font-size: 9px;
+      color: #fca5a5;
+      font-family: "Consolas", monospace;
+      max-height: 65px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 6px;
+      border-radius: 6px;
+      user-select: text;
+    }
+    .copy-btn {
+      align-self: flex-end;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #fff;
+      background: #ef4444;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.2s;
+    }
+    .copy-btn:hover {
+      background: #dc2626;
+    }
   </style>
 </head>
 <body>
@@ -121,7 +169,7 @@
   <div class="title">HomeSpark GeMo</div>
   <div class="catchphrase">あなたのデスクに、最高の知性と萌えを。</div>
 
-  <div class="progress-box">
+  <div class="progress-box" id="progress-container">
     <div class="progress-bar-bg">
       <div id="progress-fill" class="progress-bar-fill"></div>
     </div>
@@ -129,11 +177,21 @@
     <div id="sub-log" class="sub-log">高速エンジンを準備しています</div>
   </div>
 
+  <div class="error-box" id="error-container">
+    <div class="error-title">⚠️ 起動エラーが発生しました</div>
+    <div class="error-log" id="error-log-content"></div>
+    <button class="copy-btn" id="copy-log-btn">📋 ログをコピー</button>
+  </div>
+
   <script>
     let currentPercent = 10;
     const progressFill = document.getElementById("progress-fill");
     const logText = document.getElementById("log-text");
     const subLog = document.getElementById("sub-log");
+    const errorContainer = document.getElementById("error-container");
+    const errorLogContent = document.getElementById("error-log-content");
+    const copyLogBtn = document.getElementById("copy-log-btn");
+    let accumulatedLogs = [];
 
     // Autonomous smooth progress animation
     const timer = setInterval(() => {
@@ -142,6 +200,16 @@
         progressFill.style.width = currentPercent + "%";
       }
     }, 180);
+
+    copyLogBtn.addEventListener("click", () => {
+      const textToCopy = accumulatedLogs.join("\n") || errorLogContent.textContent || logText.textContent;
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        copyLogBtn.textContent = "✅ コピー完了！";
+        setTimeout(() => {
+          copyLogBtn.textContent = "📋 ログをコピー";
+        }, 2000);
+      });
+    });
 
     try {
       const { ipcRenderer } = require("electron");
@@ -159,9 +227,16 @@
         }
         if (data.log) {
           logText.textContent = data.log;
+          accumulatedLogs.push(`[${new Date().toLocaleTimeString()}] ${data.log}`);
         }
         if (data.subLog) {
           subLog.textContent = data.subLog;
+        }
+        if (data.isError) {
+          clearInterval(timer);
+          progressFill.style.background = "#ef4444";
+          errorContainer.style.display = "flex";
+          errorLogContent.textContent = (data.errorDetails || data.log) + "\n\n" + accumulatedLogs.join("\n");
         }
       });
     } catch {

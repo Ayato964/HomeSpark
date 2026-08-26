@@ -29,7 +29,12 @@ export interface ElectronAPI {
   restartAndInstallUpdate: () => void;
   onUpdateStatus: (callback: (data: UpdateStatusData) => void) => () => void;
   getBackendPort: () => Promise<number>;
+  getStartupLogs: () => Promise<string[]>;
   openExternal: (url: string) => void;
+  getOnboardingStatus: () => Promise<{ onboardingDone: boolean; voiceSupported: boolean }>;
+  setOnboardingComplete: (voiceEnabled: boolean) => Promise<{ success: boolean }>;
+  getAppConfig: () => Promise<Record<string, any>>;
+  setAppConfig: (config: Record<string, any>) => Promise<{ success: boolean }>;
 }
 
 declare global {

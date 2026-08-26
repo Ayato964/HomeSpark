@@ -60,6 +60,48 @@ DEFAULT_REF_WAV = os.getenv(
 chat_history = []
 MAX_HISTORY_LEN = 6  # Keep last 6 interactions
 
+# Self-terminating dead-man switch if parent Electron process is killed
+def _init_parent_watchdog():
+    parent_pid_str = os.getenv("PARENT_ELECTRON_PID")
+    if not parent_pid_str or not parent_pid_str.isdigit():
+        return
+    parent_pid = int(parent_pid_str)
+    if parent_pid <= 0:
+        return
+
+    import threading, time
+    SYNCHRONIZE = 0x00100000
+    ERROR_INVALID_PARAMETER = 87
+    ERROR_ACCESS_DENIED = 5
+
+    def _watch():
+        while True:
+            time.sleep(2.5)
+            try:
+                import ctypes
+                handle = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, parent_pid)
+                if handle:
+                    # WAIT_OBJECT_0 = 0 means signaled (process has terminated)
+                    wait_res = ctypes.windll.kernel32.WaitForSingleObject(handle, 0)
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                    if wait_res == 0:
+                        print(f"[Watchdog] Parent Electron process {parent_pid} exited. Exiting app_voice...", flush=True)
+                        os._exit(0)
+                else:
+                    err = ctypes.windll.kernel32.GetLastError()
+                    # Only exit if the process ID is definitively invalid/non-existent
+                    if err == ERROR_INVALID_PARAMETER:
+                        print(f"[Watchdog] Parent Electron process {parent_pid} no longer exists. Exiting app_voice...", flush=True)
+                        os._exit(0)
+                    # If ERROR_ACCESS_DENIED or other error, the process is still running; keep watching
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_watch, daemon=True)
+    t.start()
+
+_init_parent_watchdog()
+
 # Configure patched runtime
 irodori_tts_lite.configure(
     use_fused=True,
@@ -77,25 +119,29 @@ class AISpeakingState:
         self.tts_task = None         # Asyncio task handling STT/LLM/TTS pipeline
         self.interrupted_sentences = [] # Remainder sentences when interrupted
 
+# Module default speaking state
 ai_state = AISpeakingState()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global tts_runtime, stt_model, openai_client
     print("==================================================", flush=True)
-    print("Initializing Irodori-TTS & Gemma API Runtime...", flush=True)
+    print("Initializing Irodori-TTS & Whisper & Gemma API Runtime...", flush=True)
     print("==================================================", flush=True)
     
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Detected Compute Device: {device}", flush=True)
+
     try:
         # 1. Load TTS Model
         print("Loading TTS model (Irodori-TTS-Lite)...", flush=True)
         checkpoint_path = irodori_tts_lite.resolve_checkpoint(None)
         key = RuntimeKey(
             checkpoint=checkpoint_path,
-            model_device="cuda",
+            model_device=device,
             codec_repo="Aratako/Semantic-DACVAE-Japanese-32dim",
             model_precision="fp32",
-            codec_device="cuda",
+            codec_device=device,
             codec_precision="fp32",
             codec_deterministic_encode=True,
             codec_deterministic_decode=True,
@@ -103,19 +149,26 @@ async def lifespan(app: FastAPI):
             compile_dynamic=False,
         )
         tts_runtime = InferenceRuntime.from_key(key)
-        print("TTS Model loaded successfully.", flush=True)
+        print("TTS Model (Irodori-TTS-Lite) loaded successfully.", flush=True)
 
-        # 2. Load STT Model (faster-whisper large-v3)
-        print("Loading STT model (Whisper Large-v3)...", flush=True)
-        stt_model = WhisperModel("large-v3", device="cuda", compute_type="float16")
-        print("STT Model loaded successfully.", flush=True)
+        # 2. Load STT Model (Kotoba-Whisper-v2.0 Japanese distilled - ultra-fast & high accuracy)
+        whisper_model_name = os.getenv("WHISPER_MODEL", "kotoba-tech/kotoba-whisper-v2.0-faster")
+        print(f"Loading STT model (Faster-Whisper {whisper_model_name})...", flush=True)
+        compute_type = "float16" if device == "cuda" else "int8"
+        stt_model = WhisperModel(whisper_model_name, device=device, compute_type=compute_type)
+        print(f"STT Model ({whisper_model_name}) loaded successfully on {device} ({compute_type}).", flush=True)
+
+        if device == "cuda":
+            allocated_vram = round(torch.cuda.memory_allocated(0) / (1024 ** 2), 1)
+            reserved_vram = round(torch.cuda.memory_reserved(0) / (1024 ** 2), 1)
+            print(f"[VRAM Status] Models resident in VRAM: {allocated_vram} MB allocated / {reserved_vram} MB reserved", flush=True)
 
         # 3. Setup OpenAI-compatible Client for Gemma API
         print(f"Initializing Gemma API Client (Base URL: {BASE_URL}, Model: {MODEL_NAME})...", flush=True)
         openai_client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
         print("Gemma API Client ready.", flush=True)
         print("==================================================", flush=True)
-        print("All models and API clients ready.", flush=True)
+        print("All voice models resident in memory & ready.", flush=True)
         print("==================================================", flush=True)
 
     except Exception as e:
@@ -130,10 +183,32 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Mount static assets directory from built TS frontend
 assets_dir = os.path.join(BASE_DIR, "frontend", "dist", "assets")
 if os.path.exists(assets_dir):
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+@app.get("/api/health")
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Electron and diagnostics probing."""
+    return {
+        "status": "ok",
+        "service": "irodori-tts-voice",
+        "tts_ready": tts_runtime is not None,
+        "stt_ready": stt_model is not None,
+        "cuda": torch.cuda.is_available(),
+    }
 
 @app.get("/", response_class=HTMLResponse)
 async def get_index():
@@ -196,6 +271,56 @@ async def tts_endpoint(
         print(f"[TTS Endpoint Error]: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+from fastapi import Request
+
+@app.post("/transcribe")
+async def transcribe_endpoint(request: Request):
+    """Transcribe uploaded audio file using the in-memory Whisper Large-v3 model."""
+    if not stt_model:
+        raise HTTPException(status_code=503, detail="STT Model not loaded yet")
+
+    try:
+        content_type = request.headers.get("content-type", "")
+        content = b""
+        if "multipart/form-data" in content_type:
+            try:
+                form = await request.form()
+                audio_field = form.get("file") or form.get("audio")
+                if audio_field and hasattr(audio_field, "read"):
+                    content = await audio_field.read()
+            except Exception:
+                pass
+        
+        if not content:
+            content = await request.body()
+
+        if not content or len(content) < 10:
+            return {"text": ""}
+
+        suffix = ".wav" if content.startswith(b"RIFF") else ".webm"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        try:
+            loop = asyncio.get_running_loop()
+            def _transcribe():
+                segments, info = stt_model.transcribe(tmp_path, beam_size=1, vad_filter=True, language="ja")
+                return "".join([segment.text for segment in segments]).strip()
+
+            text = await loop.run_in_executor(None, _transcribe)
+            return {"text": text}
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[STT Endpoint Error]: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Helper to synthesize and send TTS through WebSocket
 async def generate_and_send_tts(text: str, index: int, websocket: WebSocket):
     # Strip any leftover punctuation or markdown
@@ -251,7 +376,7 @@ async def process_and_respond(audio_data: np.ndarray, websocket: WebSocket):
     try:
         print("[STT] Running transcription on audio buffer...", flush=True)
         # Directly pass raw float32 array at 16kHz
-        segments, info = stt_model.transcribe(audio_data, beam_size=5, language="ja")
+        segments, info = stt_model.transcribe(audio_data, beam_size=1, vad_filter=True, language="ja")
         user_text = "".join([segment.text for segment in segments]).strip()
         print(f"[STT] Result: \"{user_text}\"", flush=True)
         
@@ -293,9 +418,9 @@ async def process_and_respond(audio_data: np.ndarray, websocket: WebSocket):
             "あなたは親切で正確な日本語ビジネスアシスタント「Sales Spark」です。\n"
             "デジタル名刺・顧客プロファイルの閲覧・検索・新規登録・編集や Google カレンダー・Gmail などの予定・連絡支援をサポートします。\n\n"
             "【音声対話・話し方のルール】\n"
-            "1. 最初は自然な相槌（「はい！」「わかりました！」「ええとね、」など）から始めてください。\n"
+            "1. 最初は自然な相槌（「はい！」「わかりました！」など）から始めてください。\n"
             "2. 音声合成（TTS）で読み上げるため、1〜2文程度の簡潔で親しみやすい日本語で短く回答してください。Markdownの装飾や箇条書き、英語の注釈は一切含めないでください。\n"
-            "3. 文の末尾に感情を表す絵文字やニュアンスを適度に入れてください。"
+            "3. 絵文字や記号は一切含めず、純粋な自然な日本語テキストのみで回答してください。"
         )
 
         api_messages = [{"role": "system", "content": system_instruction}] + chat_history
@@ -479,4 +604,4 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8008"))
-    uvicorn.run("app_voice:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")

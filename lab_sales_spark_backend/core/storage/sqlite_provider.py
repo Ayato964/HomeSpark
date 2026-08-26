@@ -623,6 +623,32 @@ class SqliteStorageProvider(BaseStorageProvider):
     def save_google_tokens(self, uid: str, tokens: dict) -> None:
         self.initialize()
         now = int(time.time())
+
+        # Normalize scopes to string
+        scope_val = tokens.get("scope")
+        if not scope_val and "scopes" in tokens:
+            scopes = tokens.get("scopes")
+            if isinstance(scopes, (list, tuple)):
+                scope_val = " ".join(scopes)
+            elif isinstance(scopes, str):
+                scope_val = scopes
+
+        # Normalize token_expiry to integer timestamp if possible
+        raw_expiry = tokens.get("token_expiry")
+        expiry_ts = None
+        if raw_expiry is not None:
+            if isinstance(raw_expiry, (int, float)):
+                expiry_ts = int(raw_expiry)
+            elif isinstance(raw_expiry, str):
+                try:
+                    dt = datetime.fromisoformat(raw_expiry)
+                    expiry_ts = int(dt.timestamp())
+                except Exception:
+                    try:
+                        expiry_ts = int(float(raw_expiry))
+                    except Exception:
+                        expiry_ts = None
+
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -641,8 +667,8 @@ class SqliteStorageProvider(BaseStorageProvider):
                     uid,
                     tokens.get("access_token"),
                     tokens.get("refresh_token"),
-                    tokens.get("token_expiry"),
-                    tokens.get("scope"),
+                    expiry_ts,
+                    scope_val,
                     now,
                 ),
             )
@@ -660,11 +686,13 @@ class SqliteStorageProvider(BaseStorageProvider):
             ).fetchone()
         if not row or not row["access_token"]:
             return None
+        scope_str = row["scope"] or ""
         return {
             "access_token": row["access_token"],
             "refresh_token": row["refresh_token"],
             "token_expiry": row["token_expiry"],
             "scope": row["scope"],
+            "scopes": scope_str.split() if scope_str else [],
         }
 
     def delete_google_tokens(self, uid: str) -> None:

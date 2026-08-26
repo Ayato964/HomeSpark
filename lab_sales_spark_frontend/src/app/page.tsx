@@ -11,11 +11,18 @@ import { ReleaseNotesModal } from "../components/ReleaseNotesModal";
 import { ImapSettingsModal } from "../components/ImapSettingsModal";
 import { SettingsModal } from "../components/SettingsModal";
 import { OnboardingModal } from "../components/OnboardingModal";
+import { StartupLoadingScreen } from "../components/StartupLoadingScreen";
 import { isDesktopApp, getBackendBaseUrl } from "../utils/platform";
 import { UserProfile } from "../types/chat";
 import { ChatService } from "../services/ChatService";
 import { getToken, loginQuick, getUser } from "../services/auth";
 import { sendSubtitleToOverlay } from "../utils/electron";
+
+// The startup diagnostics screen (voice / TTS / STT / LLM check) should run once
+// per app launch. `sessionStorage` is wiped when the app window closes, so this
+// flag keeps the screen from re-running on the in-app `location.reload()` that
+// follows onboarding while still showing it on every real launch.
+const STARTUP_DIAG_SESSION_KEY = 'homespark_startup_diagnostics_done';
 
 
 // Re-expose the parser utility locally or import it. We can define it here.
@@ -128,15 +135,37 @@ export default function Home() {
   const [subtitle, setSubtitle] = useState<{ text: string; sender: 'user' | 'ai' | 'status' } | null>(null);
 
   // Onboarding & Platform states
+  const [isStartupLoading, setIsStartupLoading] = useState<boolean>(true);
+  // Resolved in an effect (not a lazy initializer) so SSR and the first client
+  // render agree; the startup screen is withheld until then.
+  const [startupGateResolved, setStartupGateResolved] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [isVoiceCallSupported, setIsVoiceCallSupported] = useState<boolean>(false);
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'error'>('checking');
   const [backendError, setBackendError] = useState<string | null>(null);
 
+  const isWebSpeechAvailableRef = useRef<boolean>(true);
   const isVoiceMutedRef = useRef<boolean>(false);
   const realtimeCallEnabledRef = useRef<boolean>(false);
   const isConvActiveRef = useRef<boolean>(false);
   const lastAssistantResponseRef = useRef<string>('');
+
+  // Skip the startup diagnostics when they already ran in this app session
+  // (e.g. after onboarding triggers a page reload).
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(STARTUP_DIAG_SESSION_KEY) === 'true') {
+        setIsStartupLoading(false);
+        const cachedVoice = window.localStorage.getItem('homespark_voice_supported');
+        if (cachedVoice !== null) {
+          setIsVoiceCallSupported(cachedVoice === 'true');
+        }
+      }
+    } catch {
+      // sessionStorage can be unavailable; fall back to running diagnostics.
+    }
+    setStartupGateResolved(true);
+  }, []);
 
   // Monitor backend health with graceful retry
   useEffect(() => {
@@ -176,12 +205,41 @@ export default function Home() {
   useEffect(() => {
     const desktop = isDesktopApp();
     if (desktop) {
-      const done = localStorage.getItem('homespark_gemo_onboarding_done');
-      const voiceSupported = localStorage.getItem('homespark_voice_supported');
-      if (done !== 'true') {
-        setIsOnboardingOpen(true);
+      if (window.electronAPI?.getOnboardingStatus) {
+        window.electronAPI.getOnboardingStatus().then((status) => {
+          if (status.onboardingDone) {
+            setIsOnboardingOpen(false);
+            setIsVoiceCallSupported(status.voiceSupported);
+            localStorage.setItem('homespark_gemo_onboarding_done', 'true');
+            localStorage.setItem('homespark_voice_supported', status.voiceSupported ? 'true' : 'false');
+          } else {
+            const doneLocal = localStorage.getItem('homespark_gemo_onboarding_done');
+            if (doneLocal === 'true') {
+              const voiceSupportedLocal = localStorage.getItem('homespark_voice_supported') === 'true';
+              setIsOnboardingOpen(false);
+              setIsVoiceCallSupported(voiceSupportedLocal);
+              window.electronAPI?.setOnboardingComplete(voiceSupportedLocal).catch(() => {});
+            } else {
+              setIsOnboardingOpen(true);
+            }
+          }
+        }).catch(() => {
+          const done = localStorage.getItem('homespark_gemo_onboarding_done');
+          const voiceSupported = localStorage.getItem('homespark_voice_supported');
+          if (done !== 'true') {
+            setIsOnboardingOpen(true);
+          } else {
+            setIsVoiceCallSupported(voiceSupported === 'true');
+          }
+        });
       } else {
-        setIsVoiceCallSupported(voiceSupported === 'true');
+        const done = localStorage.getItem('homespark_gemo_onboarding_done');
+        const voiceSupported = localStorage.getItem('homespark_voice_supported');
+        if (done !== 'true') {
+          setIsOnboardingOpen(true);
+        } else {
+          setIsVoiceCallSupported(voiceSupported === 'true');
+        }
       }
     } else {
       // Web browser: voice AI is disabled by default
@@ -230,7 +288,10 @@ export default function Home() {
       if (next) {
         setIsVoiceCallActive(true);
         setIsVoiceMuted(false);
-        setSubtitle({ text: '🎙️ リアルタイム通話を開始しました（常時待機中）', sender: 'status' });
+        setSubtitle({ text: 'リアルタイム通話を開始しました', sender: 'status' });
+        setTimeout(() => {
+          setSubtitle(prev => (prev?.text === 'リアルタイム通話を開始しました' ? null : prev));
+        }, 2000);
       } else {
         setIsVoiceCallActive(false);
         setIsVoiceMuted(false);
@@ -381,6 +442,8 @@ export default function Home() {
   const currentSegmentCountRef = useRef<number>(0);
   const isPlayingRef = useRef<boolean>(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceMediaStreamRef = useRef<MediaStream | null>(null);
+  const voiceAudioCtxRef = useRef<AudioContext | null>(null);
   
   const isVoiceCallActiveRef = useRef<boolean>(false);
   const isVoiceProcessingRef = useRef<boolean>(false);
@@ -552,7 +615,7 @@ export default function Home() {
             if (hasNext) {
               playNextOrderedVoiceSegment();
             } else if (!isVoiceProcessingRef.current) {
-              setSubtitle({ text: 'お話しください...', sender: 'status' });
+              setSubtitle(null);
               if (isVoiceCallActiveRef.current && recognitionRef.current) {
                 try { recognitionRef.current.start(); } catch {}
               }
@@ -569,6 +632,12 @@ export default function Home() {
         const url = URL.createObjectURL(segment.blob);
         const audio = new Audio(url);
         audio.volume = 1.0;
+        const savedOutput = localStorage.getItem('homespark_audio_output_device');
+        if (savedOutput && typeof (audio as any).setSinkId === 'function') {
+          (audio as any).setSinkId(savedOutput).catch((e: any) => {
+            console.warn('[Audio Output] setSinkId failed:', e);
+          });
+        }
         audioRef.current = audio;
 
         const onSegmentFinished = () => {
@@ -582,7 +651,7 @@ export default function Home() {
             playNextOrderedVoiceSegment();
           } else if (!isVoiceProcessingRef.current) {
             // All generated voice segments have completed playback
-            setSubtitle({ text: 'お話しください...', sender: 'status' });
+            setSubtitle(null);
             if (isVoiceCallActiveRef.current && recognitionRef.current) {
               try {
                 recognitionRef.current.start();
@@ -620,13 +689,13 @@ export default function Home() {
     const index = currentSegmentCountRef.current++;
     const segment: VoiceSegment = {
       index,
-      text: rawText, // Keep emojis in display text for subtitle
+      text: ttsText, // Clean text without emojis for subtitle HUD display and fallback speech
       blob: null,
       status: 'pending'
     };
     voiceSegmentsRef.current.set(index, segment);
 
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+    const backendUrl = getBackendBaseUrl();
     fetch(`${backendUrl}/api/tts?text=${encodeURIComponent(ttsText)}`)
       .then(async (response) => {
         if (!response.ok) throw new Error(`TTS server returned ${response.status}`);
@@ -641,10 +710,11 @@ export default function Home() {
         }
       })
       .catch((err) => {
-        console.error(`Failed to fetch TTS for segment ${index} ("${rawText}"):`, err);
+        console.warn(`[TTS] Synthesis offline or error for segment ${index} ("${rawText}"): ${err?.message || err}. Falling back to visual subtitle & Web Speech...`);
         const target = voiceSegmentsRef.current.get(index);
         if (target) {
-          target.status = 'played'; // Skip errored segment so playback does not stall
+          target.status = 'ready'; // Retain segment so subtitle is displayed & Web Speech fallback activates
+          target.blob = null;
           playNextOrderedVoiceSegment();
         }
       });
@@ -671,47 +741,47 @@ export default function Home() {
     return map[name] || name;
   };
 
-  // Randomized preset acknowledgment phrases spoken immediately when a tool is called (Persona: Jenny)
+  // Randomized preset acknowledgment phrases spoken immediately when a tool is called (Clean, professional, emoji-free)
   const getRandomToolAcknowledgePhrase = (toolName: string): string => {
     const calendarPhrases = [
-      '😆はいっ！カレンダーを確認しますねっ♪',
-      '😊お任せくださいっ！予定を見てみますね！',
-      '🤔少々お待ちくださいね、スケジュールをお調べしますっ！',
+      'はい、カレンダーを確認しますね。',
+      'お任せください、予定を見てみます。',
+      '少々お待ちください、スケジュールをお調べします。',
     ];
     const mailPhrases = [
-      '😆了解ですっ！メールを検索しますね♪',
-      '😊はいっ！届いているメールを確認してみますね！',
-      '🤔少々お待ちくださいね、メールボックスをチェックしますっ！',
+      '了解です、メールを検索します。',
+      'はい、届いているメールを確認してみます。',
+      '少々お待ちください、メールボックスをチェックします。',
     ];
     const externalMailPhrases = [
-      '😆了解ですっ！会社・外部メールを確認しますね♪',
-      '😊はいっ！外部メールボックスをチェックしてみますね！',
-      '🤔少々お待ちくださいね、外部メールを照会しますっ！',
+      '了解です、会社・外部メールを確認します。',
+      'はい、外部メールボックスをチェックします。',
+      '少々お待ちください、外部メールを照会します。',
     ];
     const peoplePhrases = [
-      '😆かしこまりましたっ！名刺の情報を探してみますね♪',
-      '😊はいっ！顧客データを照会しますね！',
-      '🤔名刺データを確認しますねっ！',
+      'かしこまりました、名刺の情報を探してみます。',
+      'はい、顧客データを照会します。',
+      '名刺データを確認しますね。',
     ];
     const weatherPhrases = [
-      '😆はいっ！お天気を調べてみますねっ♪',
-      '😊お任せくださいっ！天気予報を確認しますね！',
-      '🤔少々お待ちくださいね、最新の気象情報をチェックしますっ！',
+      'はい、お天気を調べてみます。',
+      'お任せください、天気予報を確認します。',
+      '少々お待ちください、最新の気象情報をチェックします。',
     ];
     const memoryPhrases = [
-      '😆はいっ！過去の記憶を調べてみますねっ♪',
-      '😊お任せくださいっ！以前お話しした記録を探しますね！',
-      '🤔少々お待ちくださいね、過去の会話ログを検索しますっ！',
+      'はい、過去の記録を調べてみます。',
+      'お任せください、以前お話しした記録を探します。',
+      '少々お待ちください、過去の会話ログを検索します。',
     ];
     const webSearchPhrases = [
-      '😆はいっ！ネットでお調べしますねっ♪',
-      '😊お任せくださいっ！ウェブで最新情報を検索しますね！',
-      '🤔少々お待ちくださいね、インターネットで検索してきますっ！',
+      'はい、ネットでお調べします。',
+      'お任せください、ウェブで最新情報を検索します。',
+      '少々お待ちください、インターネットで検索してきます。',
     ];
     const genericPhrases = [
-      '😆はいっ！確認してみますねっ♪',
-      '😊わかりましたっ！少々お待ちくださいね！',
-      '🤔ええとね、今お調べしていますよっ♪',
+      'はい、確認してみます。',
+      'わかりました、少々お待ちください。',
+      'ただいまお調べしています。',
     ];
 
     let candidates = genericPhrases;
@@ -741,42 +811,14 @@ export default function Home() {
     return text.replace(ACK_REGEX, '').trim();
   };
 
-  // Helper to ensure each voice segment always starts with a facial expression emoji and NEVER ends with one
+  // Helper to format clean voice sentence (removes markdown and all emojis)
   const formatVoiceSentence = (raw: string): string => {
-    let text = raw.replace(/[*`#]/g, '').trim();
+    let text = raw.replace(/[*`#_~]/g, '').trim();
     if (!text || text === 'thought') return '';
 
-    // Extract actual speech text (excluding emojis, preserving all digits and words)
+    // Strip all emojis and pictographs completely
     const speechContent = text.replace(EMOJI_REGEX, '').trim();
-    // If segment contains only emojis/symbols with no spoken content, discard it
-    if (!speechContent) return '';
-
-    // Detect any leading or trailing emojis in the raw text
-    const leadingEmojiMatch = text.match(LEADING_EMOJI_REGEX);
-    const trailingEmojiMatch = text.match(TRAILING_EMOJI_REGEX);
-
-    let emoji = '';
-    if (leadingEmojiMatch) {
-      emoji = leadingEmojiMatch[0];
-    } else if (trailingEmojiMatch) {
-      emoji = trailingEmojiMatch[0];
-    } else {
-      // Infer natural expression from the phrase content
-      if (/^(はい|ええ|わかりました|了解|承知|もちろん|任せて|こんにちは|おはよう|こんばんは)/.test(speechContent)) {
-        emoji = '😆';
-      } else if (/(\?|？|でしょうか|ですか|どう|確認)/.test(speechContent)) {
-        emoji = '🤔';
-      } else if (/(すみません|申し訳|失敗|エラー|できません|未連携)/.test(speechContent)) {
-        emoji = '😅';
-      } else if (/(完了|登録|送信|作成|できました|設定)/.test(speechContent)) {
-        emoji = '✨';
-      } else {
-        emoji = '😊';
-      }
-    }
-
-    // Always place the emoji strictly at the beginning and keep the body clean
-    return `${emoji}${speechContent}`;
+    return speechContent;
   };
 
   // Helper to accurately extract completed sentences in 2-sentence paired chunks for natural speech flow
@@ -1024,9 +1066,7 @@ export default function Home() {
         };
 
         rec.onstart = () => {
-          if (!isPlayingRef.current && !isVoiceProcessingRef.current && !speechAccumulatorRef.current) {
-            setSubtitle({ text: 'お話しください...', sender: 'status' });
-          }
+          // Keep subtitle clean without displaying idle status
         };
 
         rec.onresult = (event: any) => {
@@ -1056,26 +1096,37 @@ export default function Home() {
           if (currentLiveSpeech) {
             setSubtitle({ text: `あなた: ${currentLiveSpeech}`, sender: 'user' });
 
-            // Debounce silence timer: wait 850ms of silence before finalizing and sending the turn
+            // Debounce silence timer: 500ms (0.5s) by default, with slight buffer for trailing particles
             if (speechSilenceTimerRef.current) {
               clearTimeout(speechSilenceTimerRef.current);
             }
+            const isTrailingParticle = /(?:を|に|が|は|で|と|て|の|へ|から|ので|けど|たり|なら)$/.test(currentLiveSpeech);
+            const silenceDelay = isTrailingParticle ? 750 : 500;
             speechSilenceTimerRef.current = setTimeout(() => {
               flushAccumulatedSpeech();
-            }, 850);
+            }, silenceDelay);
           }
         };
 
         rec.onerror = (event: any) => {
-          console.error('Speech recognition error:', event.error);
+          console.log('[SpeechRecognition] Status / event error:', event.error);
+          if (event.error === 'network' || event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+            // Web Speech API cloud STT is unavailable (e.g. Electron desktop without Chrome API key)
+            // Gracefully stop Web Speech API and rely 100% on VAD + Backend Whisper/Gemini STT
+            isWebSpeechAvailableRef.current = false;
+            try {
+              rec.stop();
+            } catch {}
+            return;
+          }
           if (event.error !== 'no-speech' && event.error !== 'aborted') {
-            setSubtitle({ text: `マイク: ${event.error}`, sender: 'status' });
+            console.warn('[SpeechRecognition] Minor status notice:', event.error);
           }
         };
 
         rec.onend = () => {
-          // Keep microphone continuously listening as long as voice call is active
-          if (isVoiceCallActiveRef.current) {
+          // Keep microphone continuously listening as long as voice call is active and Web Speech API is working
+          if (isVoiceCallActiveRef.current && isWebSpeechAvailableRef.current) {
             try {
               recognitionRef.current?.start();
             } catch (e) {
@@ -1106,8 +1157,21 @@ export default function Home() {
       }
       
       if (navigator?.mediaDevices?.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-          if (recognitionRef.current) {
+        const savedInput = localStorage.getItem('homespark_audio_input_device');
+        const audioConstraints: MediaStreamConstraints = {
+          audio: savedInput ? { deviceId: { exact: savedInput } } : true,
+        };
+        navigator.mediaDevices.getUserMedia(audioConstraints).then((stream) => {
+          if (!isVoiceCallActiveRef.current) {
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+          }
+          if (voiceMediaStreamRef.current) {
+            voiceMediaStreamRef.current.getTracks().forEach((t) => t.stop());
+          }
+          voiceMediaStreamRef.current = stream;
+
+          if (recognitionRef.current && isWebSpeechAvailableRef.current) {
             try {
               recognitionRef.current.start();
             } catch (e) {
@@ -1117,7 +1181,11 @@ export default function Home() {
 
           // Web Audio API VAD (Voice Activity Detection) with strict 30s hard limit & memory leak safety
           try {
+            if (voiceAudioCtxRef.current) {
+              try { voiceAudioCtxRef.current.close(); } catch {}
+            }
             const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            voiceAudioCtxRef.current = audioCtx;
             const source = audioCtx.createMediaStreamSource(stream);
             const analyser = audioCtx.createAnalyser();
             analyser.fftSize = 512;
@@ -1158,6 +1226,12 @@ export default function Home() {
             };
 
             recorder.onstop = async () => {
+              // If Web Speech API is actively handling speech recognition, discard VAD chunks to prevent dual-STT contention
+              if (isWebSpeechAvailableRef.current) {
+                chunks = [];
+                return;
+              }
+
               if (chunks.length > 0 && !isVoiceProcessingRef.current && isVoiceCallActiveRef.current) {
                 const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
                 chunks = [];
@@ -1165,7 +1239,7 @@ export default function Home() {
                   try {
                     const formData = new FormData();
                     formData.append('audio', audioBlob, 'speech.webm');
-                    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+                    const backendUrl = getBackendBaseUrl();
                     const res = await fetch(`${backendUrl}/api/audio/transcribe`, {
                       method: 'POST',
                       body: formData,
@@ -1173,8 +1247,39 @@ export default function Home() {
                     if (res.ok) {
                       const data = await res.json();
                       if (data.text && data.text.trim()) {
-                        console.log("[Server-side STT via VAD]:", data.text);
-                        handleVoiceInput(data.text.trim());
+                        const userText = data.text.trim();
+                        console.log("[Server-side STT via VAD]:", userText);
+                        setSubtitle({ text: `あなた: ${userText}`, sender: 'user' });
+
+                        if (isConvActiveRef.current) {
+                          handleVoiceInput(userText);
+                        } else {
+                          (async () => {
+                            const chatService = new ChatService();
+                            const localToken = typeof window !== 'undefined' ? window.localStorage.getItem('spark_session') : null;
+                            const freshToken = getToken() || token || localToken;
+                            const isAddressing = await chatService.checkIsAddressingAI(
+                              freshToken,
+                              userText,
+                              lastAssistantResponseRef.current
+                            );
+                            if (isAddressing) {
+                              console.log("[Classifier via VAD] User speech addresses AI! Setting is_conv = true");
+                              setIsConvActive(true);
+                              isConvActiveRef.current = true;
+                              handleVoiceInput(userText);
+                            } else {
+                              console.log("[Classifier via VAD] Speech ignored (not addressing AI):", userText);
+                              setTimeout(() => {
+                                setSubtitle(prev => (prev && prev.text.includes(userText) ? null : prev));
+                              }, 1500);
+                            }
+                          })();
+                        }
+                      } else {
+                        if (!isPlayingRef.current && !isVoiceProcessingRef.current) {
+                          setSubtitle(null);
+                        }
                       }
                     }
                   } catch (e) {
@@ -1190,6 +1295,10 @@ export default function Home() {
               if (!isVoiceCallActiveRef.current) {
                 clearInterval(vadInterval);
                 try { audioCtx.close(); } catch {}
+                if (voiceMediaStreamRef.current) {
+                  voiceMediaStreamRef.current.getTracks().forEach((t) => t.stop());
+                  voiceMediaStreamRef.current = null;
+                }
                 return;
               }
               analyser.getByteFrequencyData(buffer);
@@ -1210,13 +1319,13 @@ export default function Home() {
                   silenceTimer = null;
                 }
               } else if (isUserSpeaking) {
-                // User was speaking, now silent for 800ms
+                // User was speaking, now silent for 500ms (0.5s)
                 if (!silenceTimer) {
                   silenceTimer = setTimeout(() => {
                     isUserSpeaking = false;
                     silenceTimer = null;
                     stopAndTranscribe();
-                  }, 800);
+                  }, 500);
                 }
               }
             }, 50);
@@ -1247,6 +1356,14 @@ export default function Home() {
         setIsVoiceCallActive(false);
       }
     } else {
+      if (voiceMediaStreamRef.current) {
+        voiceMediaStreamRef.current.getTracks().forEach((t) => t.stop());
+        voiceMediaStreamRef.current = null;
+      }
+      if (voiceAudioCtxRef.current) {
+        try { voiceAudioCtxRef.current.close(); } catch {}
+        voiceAudioCtxRef.current = null;
+      }
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -1703,6 +1820,22 @@ export default function Home() {
         display: 'flex',
       }}
     >
+      {/* Startup Initializer & Voice Diagnostics Loading Screen */}
+      {startupGateResolved && isStartupLoading && (
+        <StartupLoadingScreen
+          onComplete={({ voiceSupported: isVoiceOk }) => {
+            setIsStartupLoading(false);
+            setIsVoiceCallSupported(isVoiceOk);
+            localStorage.setItem('homespark_voice_supported', isVoiceOk ? 'true' : 'false');
+            try {
+              window.sessionStorage.setItem(STARTUP_DIAG_SESSION_KEY, 'true');
+            } catch {
+              // Non-fatal: the check simply runs again after a reload.
+            }
+          }}
+        />
+      )}
+
       {/* Background patterns */}
       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px)', backgroundSize: '32px 32px', pointerEvents: 'none', zIndex: 0 }}></div>
       <div className={`bg-glow-container ${isGenerating ? 'generating' : ''} ${isThemeChanging ? 'theme-changing' : ''}`}>
@@ -2162,9 +2295,9 @@ export default function Home() {
                   const nextMuted = !prev;
                   if (nextMuted) {
                     fadeOutAndStopVoice(true);
-                    setSubtitle({ text: '🔇 マイクはミュートされています（クリックで解除）', sender: 'status' });
+                    setSubtitle({ text: 'マイクはミュートされています（クリックで解除）', sender: 'status' });
                   } else {
-                    setSubtitle({ text: 'お話しください...', sender: 'status' });
+                    setSubtitle(null);
                   }
                   return nextMuted;
                 });
@@ -2263,6 +2396,9 @@ export default function Home() {
           setIsVoiceCallSupported(voiceEnabled);
           localStorage.setItem('homespark_gemo_onboarding_done', 'true');
           localStorage.setItem('homespark_voice_supported', voiceEnabled ? 'true' : 'false');
+          if (window.electronAPI?.setOnboardingComplete) {
+            window.electronAPI.setOnboardingComplete(voiceEnabled).catch(() => {});
+          }
           setIsOnboardingOpen(false);
           // Reload page to re-initialize custom hook with newly saved session token
           window.location.reload();

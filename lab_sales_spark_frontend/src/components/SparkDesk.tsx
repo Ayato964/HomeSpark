@@ -175,6 +175,43 @@ export const SparkDesk: React.FC<SparkDeskProps> = ({
   const [specialTimeType, setSpecialTimeType] = useState<'morning' | 'lunch' | 'night' | null>(null);
   const [dismissedSpecial, setDismissedSpecial] = useState<boolean>(false);
 
+  // Once the user closes the "Sparkからのお知らせ" screen for a given slot, keep
+  // it closed for the rest of that slot (persisted, so re-opening the app or
+  // navigating back to the desk does not bring it up again). The next slot on
+  // the next day gets its own key and shows normally.
+  const specialDismissKey = (type: 'morning' | 'lunch' | 'night') => {
+    const d = new Date();
+    const day = `${d.getFullYear()}-${('0' + (d.getMonth() + 1)).slice(-2)}-${('0' + d.getDate()).slice(-2)}`;
+    return `spark_special_dismissed_${day}_${type}`;
+  };
+
+  const isSpecialDismissed = (type: 'morning' | 'lunch' | 'night') => {
+    try {
+      return window.localStorage.getItem(specialDismissKey(type)) === 'true';
+    } catch {
+      return false;
+    }
+  };
+
+  const markSpecialDismissed = () => {
+    setDismissedSpecial(true);
+    if (!specialTimeType) return;
+    try {
+      // Drop yesterday's keys so the flags cannot pile up indefinitely.
+      const prefix = 'spark_special_dismissed_';
+      const keep = specialDismissKey(specialTimeType).slice(0, prefix.length + 10);
+      for (let i = window.localStorage.length - 1; i >= 0; i--) {
+        const k = window.localStorage.key(i);
+        if (k && k.startsWith(prefix) && !k.startsWith(keep)) {
+          window.localStorage.removeItem(k);
+        }
+      }
+      window.localStorage.setItem(specialDismissKey(specialTimeType), 'true');
+    } catch {
+      // Storage unavailable: the screen stays dismissed for this session only.
+    }
+  };
+
   useEffect(() => {
     const checkTime = () => {
       const hours = new Date().getHours();
@@ -182,19 +219,18 @@ export const SparkDesk: React.FC<SparkDeskProps> = ({
       const curTime = hours + minutes / 60;
 
       // 朝: 5:00 - 9:59, 昼: 11:30 - 13:59, 夜: 18:00 - 22:59
+      let type: 'morning' | 'lunch' | 'night' | null = null;
       if (curTime >= 5.0 && curTime < 10.0) {
-        setIsSpecialTime(true);
-        setSpecialTimeType('morning');
+        type = 'morning';
       } else if (curTime >= 11.5 && curTime < 14.0) {
-        setIsSpecialTime(true);
-        setSpecialTimeType('lunch');
+        type = 'lunch';
       } else if (curTime >= 18.0 && curTime < 23.0) {
-        setIsSpecialTime(true);
-        setSpecialTimeType('night');
-      } else {
-        setIsSpecialTime(false);
-        setSpecialTimeType(null);
+        type = 'night';
       }
+
+      setIsSpecialTime(type !== null);
+      setSpecialTimeType(type);
+      setDismissedSpecial(type !== null ? isSpecialDismissed(type) : false);
     };
 
     checkTime();
@@ -563,10 +599,10 @@ export const SparkDesk: React.FC<SparkDeskProps> = ({
               onSwipeRight={() => {
                 setViewingNotifications(true);
                 setCurrentNotificationIndex(0);
-                setDismissedSpecial(true);
+                markSpecialDismissed();
               }}
               onSwipeLeft={() => {
-                setDismissedSpecial(true);
+                markSpecialDismissed();
               }}
             />
             <div style={{ fontSize: '11px', opacity: 0.7 }}>
@@ -575,7 +611,7 @@ export const SparkDesk: React.FC<SparkDeskProps> = ({
           </div>
         ) : (
           <button
-            onClick={() => setDismissedSpecial(true)}
+            onClick={markSpecialDismissed}
             style={{
               padding: '12px 24px',
               background: 'rgba(255, 255, 255, 0.2)',

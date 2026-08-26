@@ -14,7 +14,7 @@ import {
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
-import { spawn, spawnSync, ChildProcess } from "child_process";
+import { spawn, spawnSync, execSync, ChildProcess } from "child_process";
 import * as http from "http";
 import { promisify } from "util";
 import { autoUpdater } from "electron-updater";
@@ -40,7 +40,17 @@ let internalServer: http.Server | null = null;
 let dynamicFrontendUrl: string = "http://127.0.0.1:3000";
 let resolvedBackendPort: number = 8080;
 
-let lastSplashState = { log: "システム初期化中...", percent: 20, subLog: "高速エンジンを準備しています" };
+let lastSplashState = { log: "システム初期化中...", percent: 20, subLog: "高速エンジンを準備しています", isError: false, errorDetails: "" };
+
+// Rolling buffer of startup diagnostics and process logs for user debugging/copying
+const startupLogs: string[] = [];
+function addStartupLog(msg: string) {
+  const ts = new Date().toISOString().substring(11, 23);
+  const entry = `[${ts}] ${msg}`;
+  startupLogs.push(entry);
+  if (startupLogs.length > 300) startupLogs.shift();
+  console.log(entry);
+}
 
 // Child processes for local backend and TTS
 const spawnedProcesses: ChildProcess[] = [];
@@ -52,10 +62,11 @@ autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 
 // Helper to update splash screen progress and log
-function updateSplash(log: string, percent: number, subLog?: string) {
-  lastSplashState = { log, percent, subLog: subLog || "" };
+function updateSplash(log: string, percent: number, subLog?: string, isError: boolean = false, errorDetails?: string) {
+  lastSplashState = { log, percent, subLog: subLog || "", isError, errorDetails: errorDetails || "" };
+  addStartupLog(`${isError ? "[ERROR] " : ""}${log}${subLog ? ` (${subLog})` : ""}`);
   if (splashWindow && !splashWindow.isDestroyed()) {
-    splashWindow.webContents.send("splash-progress", { log, percent, subLog });
+    splashWindow.webContents.send("splash-progress", lastSplashState);
   }
 }
 
@@ -79,6 +90,36 @@ function findAvailablePort(startPort: number = 8080): Promise<number> {
       dynSrv.on("error", () => resolve(startPort + 1));
     });
   });
+}
+
+// Safely terminate lingering Python/uvicorn zombie process occupying a given local TCP port
+async function killProcessOnPort(port: number): Promise<void> {
+  if (process.platform !== "win32") return;
+  try {
+    const netstatOut = execSync(`netstat -ano | findstr :${port}`, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+    const lines = netstatOut.split("\n");
+    for (const line of lines) {
+      if (line.includes("LISTENING")) {
+        const parts = line.trim().split(/\s+/);
+        const localAddr = parts[1] || "";
+        // Strict port match: ensure localAddr ends with `:${port}` (e.g. 127.0.0.1:8008, not 127.0.0.1:18008)
+        if (!localAddr.endsWith(`:${port}`)) {
+          continue;
+        }
+        const pid = parts[parts.length - 1];
+        if (pid && !isNaN(Number(pid)) && Number(pid) !== process.pid) {
+          try {
+            // Verify process name to avoid killing unrelated services
+            const procName = execSync(`powershell -NoProfile -Command "(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).ProcessName"`, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim().toLowerCase();
+            if (procName.includes("python") || procName.includes("uvicorn")) {
+              console.log(`[Port Cleanup] Terminating zombie Python process PID ${pid} occupying port ${port}...`);
+              execSync(`taskkill /PID ${pid} /F /T`, { stdio: "ignore" });
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
 }
 
 // Helper to poll until backend /api/health returns 200 OK or times out
@@ -335,13 +376,26 @@ function getBackendConfig(): { backendDir: string; venvPython: string; ttsDir: s
   };
 }
 
-// Check if NVIDIA / dedicated GPU is present asynchronously
+// Check if NVIDIA / dedicated GPU is present asynchronously with multi-method redundancy
 async function checkGpuPresent(venvPython: string): Promise<boolean> {
+  // Method 1: nvidia-smi quick check (very fast and reliable on NVIDIA systems)
   if (process.platform === "win32") {
     try {
-      const { stdout } = await execAsync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', { timeout: 2500 });
+      const { stdout } = await execAsync("nvidia-smi --query-gpu=name --format=csv,noheader", { timeout: 4000 });
+      if (stdout && stdout.trim().length > 0) {
+        console.log("[Electron] Detected NVIDIA GPU via nvidia-smi:", stdout.trim());
+        return true;
+      }
+    } catch {
+      // ignore and fallback
+    }
+
+    // Method 2: PowerShell Get-CimInstance
+    try {
+      const { stdout } = await execAsync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', { timeout: 6000 });
       const out = (stdout || "").toLowerCase();
       if (out.includes("nvidia") || out.includes("geforce") || out.includes("rtx") || out.includes("gtx") || out.includes("quadro") || out.includes("radeon")) {
+        console.log("[Electron] Detected GPU via PowerShell WMI:", stdout.trim());
         return true;
       }
     } catch {
@@ -349,9 +403,11 @@ async function checkGpuPresent(venvPython: string): Promise<boolean> {
     }
   }
 
+  // Method 3: PyTorch CUDA check via Python runtime
   if (fs.existsSync(venvPython)) {
     try {
-      await execAsync(`"${venvPython}" -s -E -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 2500 });
+      await execAsync(`"${venvPython}" -c "import torch; exit(0 if torch.cuda.is_available() else 1)"`, { timeout: 8000 });
+      console.log("[Electron] Detected CUDA availability via PyTorch in Python runtime");
       return true;
     } catch {
       // fallback
@@ -413,16 +469,24 @@ function createSplashWindow() {
 async function ensureBackendServices() {
   const { backendDir, venvPython, ttsDir } = getBackendConfig();
 
-  updateSplash("ハードウェア環境（GPU / CUDA）を診断中...", 25, "システム診断");
-  const hasGpu = await checkGpuPresent(venvPython);
-  console.log("[Electron] GPU Presence Diagnosis:", hasGpu);
+  addStartupLog(`Python Runtime: ${venvPython}`);
+  addStartupLog(`Backend Directory: ${backendDir}`);
 
-  // 1. Resolve free backend port dynamically
+  updateSplash("ハードウェア環境（GPU / CUDA）を診断中...", 20, "システム診断");
+  const hasGpu = await checkGpuPresent(venvPython);
+  addStartupLog(`GPU Detection Result: ${hasGpu ? "Dedicated GPU (CUDA) Active" : "CPU Mode (GPU Not Detected)"}`);
+
+  // 1. Proactively clean up dangling zombie processes on default ports
+  updateSplash("ゾンビプロセスの事前解放中...", 30, "ポートクリーンアップ");
+  await killProcessOnPort(8080);
+  await killProcessOnPort(8008);
+
+  // 2. Resolve free ports dynamically
   resolvedBackendPort = await findAvailablePort(8080);
   const resolvedTtsPort = await findAvailablePort(8008);
-  console.log(`[Electron] Starting FastAPI backend on port ${resolvedBackendPort}, TTS on port ${resolvedTtsPort}`);
+  addStartupLog(`Resolved Ports - Backend: ${resolvedBackendPort}, TTS: ${resolvedTtsPort}`);
 
-  // 2. Ensure Backend Server (FastAPI)
+  // 3. Ensure Backend Server (FastAPI)
   updateSplash(`FastAPI バックエンドサーバーを起動中 (${resolvedBackendPort})...`, 45, "データベース＆API準備");
   const backendAlive = await checkPortAlive(resolvedBackendPort);
   if (!backendAlive) {
@@ -449,21 +513,26 @@ async function ensureBackendServices() {
           }
         );
 
+        backendProc.stdout?.on("data", (d) => {
+          const s = d.toString().trim();
+          addStartupLog(`[FastAPI] ${s}`);
+        });
+
         backendProc.stderr?.on("data", (d) => {
           const s = d.toString().trim();
-          console.log("[FastAPI Output]:", s);
+          addStartupLog(`[FastAPI Error] ${s}`);
           lastStderr = s;
         });
 
         backendProc.on("error", (err) => {
-          console.warn("[Backend Proc Error]:", err.message);
-          updateSplash(`バックエンド起動失敗: ${err.message}`, 80);
+          addStartupLog(`[Backend Proc Error] ${err.message}`);
+          updateSplash(`バックエンド起動失敗: ${err.message}`, 80, "エラー", true, err.message);
         });
 
         backendProc.on("exit", (code) => {
-          console.warn(`[Backend Exited]: code=${code}`);
+          addStartupLog(`[Backend Exited] code=${code}`);
           if (code !== 0 && !isQuitting) {
-            updateSplash(`バックエンド異常終了: ${lastStderr || `code ${code}`}`, 80);
+            updateSplash(`バックエンド異常終了 (code ${code}): ${lastStderr}`, 80, "エラー", true, lastStderr || `プロセス終了 code ${code}`);
           }
         });
 
@@ -471,28 +540,36 @@ async function ensureBackendServices() {
 
         // Wait until FastAPI is fully ready and responding to /api/health
         updateSplash(`バックエンドの初期化完了を待機中 (${resolvedBackendPort})...`, 65, "ヘルスチェック");
-        const ready = await waitForBackendReady(resolvedBackendPort, 12000);
+        const ready = await waitForBackendReady(resolvedBackendPort, 15000);
         if (ready) {
-          console.log(`[Electron] FastAPI backend is verified ready on port ${resolvedBackendPort}!`);
+          addStartupLog(`FastAPI backend is verified healthy on port ${resolvedBackendPort}!`);
         } else {
-          console.warn(`[Electron] Backend did not respond within 12s, proceeding with fallback.`);
+          addStartupLog(`FastAPI backend readiness wait timed out on port ${resolvedBackendPort}.`);
+          updateSplash("バックエンド応答待機タイムアウト", 70, "フォールバックモードで続行", false, lastStderr);
         }
       } catch (e: any) {
-        console.error("[Electron] Failed to spawn backend:", e);
-        updateSplash(`バックエンド起動例外: ${e?.message || e}`, 80);
+        addStartupLog(`Failed to spawn backend: ${e?.message || e}`);
+        updateSplash(`バックエンド起動例外: ${e?.message || e}`, 80, "例外エラー", true, String(e));
       }
+    } else {
+      addStartupLog(`Python executable not found at: ${venvPython}`);
+      updateSplash("Pythonランタイムが見つかりません", 80, "環境エラー", true, `Not found: ${venvPython}`);
     }
+  } else {
+    addStartupLog(`FastAPI backend is already active on port ${resolvedBackendPort}`);
   }
 
-  // 3. Ensure Local TTS Engine ONLY IF GPU IS PRESENT
+  // 4. Ensure Local TTS Engine ONLY IF GPU IS PRESENT
   if (hasGpu) {
-    updateSplash(`Irodori-TTS 音声合成エンジンを起動中 (${resolvedTtsPort})...`, 85, "CUDA 高速音声推論");
+    updateSplash(`Irodori-TTS & Whisper 音声エンジンを起動中 (${resolvedTtsPort})...`, 85, "CUDA 高速音声推論");
     const ttsAlive = await checkPortAlive(resolvedTtsPort);
     if (!ttsAlive) {
+      await killProcessOnPort(resolvedTtsPort);
       const ttsScript = path.join(ttsDir, "app_voice.py");
       if (fs.existsSync(venvPython) && fs.existsSync(ttsScript)) {
         try {
-          const ttsProc = spawn(venvPython, ["-s", "-E", "app_voice.py"], {
+          const userEnv = loadUserEnvironment();
+          const ttsProc = spawn(venvPython, ["app_voice.py"], {
             cwd: ttsDir,
             stdio: "pipe",
             detached: false,
@@ -500,15 +577,34 @@ async function ensureBackendServices() {
             windowsHide: true,
             env: {
               ...process.env,
+              ...userEnv,
+              PYTHONPATH: `${ttsDir};${backendDir};${process.env.PYTHONPATH || ""}`,
               PARENT_ELECTRON_PID: process.pid.toString(),
               PORT: resolvedTtsPort.toString(),
             },
           });
 
-          ttsProc.on("error", (err) => console.warn("[TTS Proc Error]:", err.message));
+          ttsProc.stdout?.on("data", (d) => {
+            addStartupLog(`[TTS/Whisper Server] ${d.toString().trim()}`);
+          });
+
+          ttsProc.stderr?.on("data", (d) => {
+            addStartupLog(`[TTS/Whisper Info] ${d.toString().trim()}`);
+          });
+
+          ttsProc.on("error", (err) => addStartupLog(`[TTS Proc Error] ${err.message}`));
           spawnedProcesses.push(ttsProc);
+
+          // Wait up to 10s for TTS server to initialize models and start listening
+          updateSplash(`Irodori-TTS & Whisper モデルのVRAM展開を待機中 (${resolvedTtsPort})...`, 90, "モデル常駐中");
+          const ttsReady = await waitForBackendReady(resolvedTtsPort, 10000);
+          if (ttsReady) {
+            addStartupLog(`TTS/Whisper engine is verified ready on port ${resolvedTtsPort}!`);
+          } else {
+            addStartupLog(`TTS engine initial response pending, continuing in background.`);
+          }
         } catch (e) {
-          console.error("[Electron] Failed to spawn TTS:", e);
+          addStartupLog(`Failed to spawn TTS: ${e}`);
         }
       }
     }
@@ -814,6 +910,10 @@ function setupIPC() {
     return resolvedBackendPort;
   });
 
+  ipcMain.handle("get-startup-logs", () => {
+    return startupLogs;
+  });
+
   ipcMain.on("window-minimize", () => {
     mainWindow?.minimize();
   });
@@ -902,6 +1002,63 @@ function setupIPC() {
       shell.openExternal(url);
     }
   });
+
+  ipcMain.handle("get-onboarding-status", () => {
+    const config = readAppConfig();
+    return {
+      onboardingDone: Boolean(config.onboardingDone),
+      voiceSupported: Boolean(config.voiceSupported),
+    };
+  });
+
+  ipcMain.handle("set-onboarding-complete", (_event, { voiceEnabled }: { voiceEnabled: boolean }) => {
+    writeAppConfig({
+      onboardingDone: true,
+      voiceSupported: Boolean(voiceEnabled),
+    });
+    return { success: true };
+  });
+
+  ipcMain.handle("get-app-config", () => {
+    return readAppConfig();
+  });
+
+  ipcMain.handle("set-app-config", (_event, config: Record<string, any>) => {
+    writeAppConfig(config);
+    return { success: true };
+  });
+}
+
+function getAppConfigPath(): string {
+  const appData = process.env.APPDATA || (process.platform === "darwin" ? path.join(process.env.HOME || "", "Library/Application Support") : path.join(process.env.HOME || "", ".config"));
+  const dir = path.join(appData, "HomeSpark");
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return path.join(dir, "app_config.json");
+}
+
+function readAppConfig(): Record<string, any> {
+  try {
+    const p = getAppConfigPath();
+    if (fs.existsSync(p)) {
+      return JSON.parse(fs.readFileSync(p, "utf-8"));
+    }
+  } catch (e) {
+    console.warn("[AppConfig] Failed to read app config:", e);
+  }
+  return {};
+}
+
+function writeAppConfig(update: Record<string, any>): void {
+  try {
+    const p = getAppConfigPath();
+    const current = readAppConfig();
+    const merged = { ...current, ...update };
+    fs.writeFileSync(p, JSON.stringify(merged, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("[AppConfig] Failed to write app config:", e);
+  }
 }
 
 // App lifecycle

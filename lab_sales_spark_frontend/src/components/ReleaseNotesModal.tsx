@@ -6,7 +6,7 @@ interface ReleaseNotesModalProps {
 }
 
 export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, onClose }) => {
-  const [appVersion, setAppVersion] = React.useState<string>('3.1.15');
+  const [appVersion, setAppVersion] = React.useState<string>('3.2.0');
 
   React.useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).electronAPI?.getAppVersion) {
@@ -101,10 +101,25 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           flexDirection: 'column',
           gap: '24px'
         }}>
-          {/* Latest Version */}
+          {/* Latest Version 3.2.0 */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <span style={{ fontSize: '11px', fontWeight: 600, background: '#4285F4', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.{appVersion}</span>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-26</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>
+              <li><strong>日本語特化蒸留モデル `Kotoba-Whisper-v2.0` のローカル内蔵</strong>: 従来の large-v3 比で約6倍高速・VRAM約750MBの極小化と高精度な日本語認識をローカル完全完結。</li>
+              <li><strong>無料クラウドSTT (Groq / Gemini 2.0 Flash) 最適化</strong>: クラウド音声認識の優先利用により 100〜250ms の超高速ターン処理に対応。</li>
+              <li><strong>発話終了後0.5秒での即時ターン発火</strong>: 無音検知を 500ms（助詞判定スマートバッファ付き）に短縮し、圧倒的にスムーズな会話体験を実現。</li>
+              <li><strong>プロンプト＆字幕の絵文字・不要字幕完全根絶</strong>: AI応答、相槌、字幕HUDから絵文字および「お話しください...」等の待機字幕を完全削除。</li>
+              <li><strong>5段階起動診断＆ワンクリックログコピー機能</strong>: 起動時に音声・DB・モデルのヘルスチェックを自動実行し、エラーログのコピーに対応。</li>
+            </ul>
+          </div>
+
+          {/* ver 3.1.15 */}
+          <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, background: 'var(--border3)', color: 'var(--text)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.3.1.15</span>
               <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-25</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>

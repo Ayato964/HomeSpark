@@ -20,14 +20,28 @@ _NOT_LINKED = (
 )
 
 
-def _service(uid: str, api: str, version: str):
-    """Build an authorized Google API client for `uid`, or None if unlinked."""
-    creds = get_credentials(uid)
-    if creds is None:
-        return None
-    from googleapiclient.discovery import build
+import logging
 
-    return build(api, version, credentials=creds, cache_discovery=False)
+_logger = logging.getLogger("sales_spark")
+
+def _service(uid: str, api: str, version: str):
+    """Build an authorized Google API client for `uid`, or None if unlinked or expired."""
+    try:
+        creds = get_credentials(uid)
+        if creds is None:
+            return None
+        from googleapiclient.discovery import build
+        import google_auth_httplib2
+        import httplib2
+
+        # Scoped 15-second HTTP timeout ONLY for Google API calls (no global socket pollution)
+        http_client = httplib2.Http(timeout=15.0)
+        authorized_http = google_auth_httplib2.AuthorizedHttp(creds, http=http_client)
+
+        return build(api, version, http=authorized_http, cache_discovery=False)
+    except Exception as e:
+        _logger.warning(f"[google_tools] Failed to initialize Google service ({api} {version}) for uid='{uid}': {e}")
+        return None
 
 
 def _utcnow_iso() -> str:

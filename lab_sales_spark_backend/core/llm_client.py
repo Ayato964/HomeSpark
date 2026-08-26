@@ -147,6 +147,27 @@ class OpenAICompatClient(BaseLLMClient):
 
     # ------------------------------------------------------------------ public
 
+    def chat(
+        self,
+        messages: list[Message],
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE,
+        **kwargs,
+    ) -> AskResult:
+        """Simple direct chat completions call without tool execution."""
+        sampling = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        sampling.update({k: v for k, v in kwargs.items() if v is not None})
+        res = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            **sampling,
+        )
+        content = res.choices[0].message.content or ""
+        return AskResult(content=content, messages_appended=[{"role": "assistant", "content": content}])
+
     def ask(
         self,
         *,

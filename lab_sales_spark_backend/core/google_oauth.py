@@ -49,6 +49,18 @@ _AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 _STATE_SECRET = (OAUTH_STATE_SECRET or "sales-spark-dev-state-secret").encode()
 _STATE_MAX_AGE_SEC = 600  # the user has 10 minutes to complete consent
 
+# Google signs the id_token with *its* clock. A desktop PC whose clock lags by
+# even a few tens of seconds makes the freshly-issued token look like it comes
+# from the future, and verification dies with
+#   "Token used too early, <now> < <iat>. Check that your computer's clock ..."
+# Allow a generous tolerance on the iat/exp comparison so a slightly-off local
+# clock cannot break login. Overridable with GOOGLE_ID_TOKEN_CLOCK_SKEW_SEC.
+def _id_token_clock_skew() -> int:
+    try:
+        return max(0, int(os.getenv("GOOGLE_ID_TOKEN_CLOCK_SKEW_SEC", "600")))
+    except (TypeError, ValueError):
+        return 600
+
 
 # --------------------------------------------------------------------------- #
 # Optional dependency loading
@@ -69,15 +81,24 @@ def _require_libs():
         ) from e
 
 
+def _get_client_id() -> str:
+    return os.getenv("GOOGLE_CLIENT_ID", "") or GOOGLE_CLIENT_ID
+
+def _get_client_secret() -> str:
+    return os.getenv("GOOGLE_CLIENT_SECRET", "") or GOOGLE_CLIENT_SECRET
+
+def _get_redirect_uri() -> str:
+    return os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "") or GOOGLE_OAUTH_REDIRECT_URI
+
 def is_configured() -> bool:
     """True when the OAuth client credentials have been provided."""
-    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+    return bool(_get_client_id() and _get_client_secret())
 
 
 def _allow_insecure_localhost() -> None:
     """oauthlib rejects http:// callbacks. Google permits http for localhost, so
     relax the check only when our redirect URI is an http localhost URL (dev)."""
-    uri = GOOGLE_OAUTH_REDIRECT_URI
+    uri = _get_redirect_uri()
     if uri.startswith("http://") and ("localhost" in uri or "127.0.0.1" in uri):
         os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
@@ -85,11 +106,11 @@ def _allow_insecure_localhost() -> None:
 def _client_config() -> dict:
     return {
         "web": {
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
+            "client_id": _get_client_id(),
+            "client_secret": _get_client_secret(),
             "auth_uri": _AUTH_URI,
             "token_uri": _TOKEN_URI,
-            "redirect_uris": [GOOGLE_OAUTH_REDIRECT_URI],
+            "redirect_uris": [_get_redirect_uri()],
         }
     }
 
@@ -154,7 +175,7 @@ def build_login_url(nonce: str) -> str:
     flow = Flow.from_client_config(
         _client_config(),
         scopes=GOOGLE_OAUTH_SCOPES,
-        redirect_uri=GOOGLE_OAUTH_REDIRECT_URI,
+        redirect_uri=_get_redirect_uri(),
         # Do NOT auto-generate a PKCE code_verifier. This flow is stateless: the
         # callback rebuilds a fresh Flow and has no way to recover a verifier
         # generated here, so emitting a code_challenge would make Google reject
@@ -195,7 +216,7 @@ def exchange_code_for_login(code: str, state: str, expected_nonce: str | None) -
     flow = Flow.from_client_config(
         _client_config(),
         scopes=GOOGLE_OAUTH_SCOPES,
-        redirect_uri=GOOGLE_OAUTH_REDIRECT_URI,
+        redirect_uri=_get_redirect_uri(),
         # Must mirror build_login_url: no PKCE verifier was generated at login,
         # so none is sent here.
         autogenerate_code_verifier=False,
@@ -211,9 +232,21 @@ def exchange_code_for_login(code: str, state: str, expected_nonce: str | None) -
     raw_id_token = getattr(creds, "id_token", None)
     if not raw_id_token:
         raise GoogleIntegrationError("Google did not return an id_token.")
-    claims = google_id_token.verify_oauth2_token(
-        raw_id_token, ga_requests.Request(), GOOGLE_CLIENT_ID
-    )
+    skew = _id_token_clock_skew()
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            raw_id_token,
+            ga_requests.Request(),
+            _get_client_id(),
+            clock_skew_in_seconds=skew,
+        )
+    except TypeError:
+        # google-auth < 1.22 has no clock_skew_in_seconds parameter.
+        claims = google_id_token.verify_oauth2_token(
+            raw_id_token, ga_requests.Request(), _get_client_id()
+        )
+    except Exception as e:  # noqa: BLE001 - google-auth raises its own types
+        raise GoogleIntegrationError(f"id_token verification failed: {e}") from e
     sub = claims.get("sub")
     if not sub:
         raise GoogleIntegrationError("id_token is missing 'sub'.")
@@ -265,21 +298,27 @@ def get_credentials(uid: str):
     # leaving the user with a dead token ~1h after linking.
     expiry = None
     raw_expiry = stored.get("token_expiry")
-    if raw_expiry:
+    if raw_expiry is not None:
         try:
-            dt = datetime.datetime.fromisoformat(raw_expiry)
-            if dt.tzinfo is not None:
-                dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-            expiry = dt
-        except (ValueError, TypeError):
+            if isinstance(raw_expiry, (int, float)):
+                expiry = datetime.datetime.fromtimestamp(float(raw_expiry), tz=datetime.timezone.utc).replace(tzinfo=None)
+            elif isinstance(raw_expiry, str):
+                if raw_expiry.isdigit() or (raw_expiry.replace(".", "", 1).isdigit() and raw_expiry.count(".") <= 1):
+                    expiry = datetime.datetime.fromtimestamp(float(raw_expiry), tz=datetime.timezone.utc).replace(tzinfo=None)
+                else:
+                    dt = datetime.datetime.fromisoformat(raw_expiry)
+                    if dt.tzinfo is not None:
+                        dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                    expiry = dt
+        except (ValueError, TypeError, OSError):
             expiry = None
 
     creds = Credentials(
         token=stored.get("access_token"),
         refresh_token=stored.get("refresh_token"),
         token_uri=stored.get("token_uri", _TOKEN_URI),
-        client_id=GOOGLE_CLIENT_ID,
-        client_secret=GOOGLE_CLIENT_SECRET,
+        client_id=_get_client_id(),
+        client_secret=_get_client_secret(),
         scopes=stored.get("scopes", GOOGLE_OAUTH_SCOPES),
         expiry=expiry,
     )
@@ -288,10 +327,16 @@ def get_credentials(uid: str):
             creds.refresh(Request())
             save_google_tokens(uid, _credentials_to_dict(creds))
         except Exception as e:  # noqa: BLE001
-            raise GoogleIntegrationError(
-                f"Failed to refresh Google access token: {e}. "
-                "The user may need to re-link their account."
-            ) from e
+            import logging
+            logging.getLogger("sales_spark").warning(
+                f"[Google OAuth] Failed to refresh Google access token for uid='{uid}': {e}. "
+                "Cleaning up expired/revoked tokens from database."
+            )
+            try:
+                delete_google_tokens(uid)
+            except Exception:
+                pass
+            return None
     return creds
 
 

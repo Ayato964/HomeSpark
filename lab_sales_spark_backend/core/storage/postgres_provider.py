@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 import typing as t
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
@@ -159,9 +159,11 @@ class PostgresStorageProvider(BaseStorageProvider):
                     user_ref TEXT NOT NULL,
                     access_token TEXT NOT NULL,
                     refresh_token TEXT,
-                    token_expiry BIGINT,
-                    scope TEXT,
-                    updated_at BIGINT NOT NULL,
+                    token_expiry TIMESTAMPTZ,
+                    scopes JSONB DEFAULT '[]',
+                    token_uri TEXT,
+                    email TEXT,
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
                     PRIMARY KEY (tenant_id, user_ref)
                 );
                 """
@@ -637,30 +639,61 @@ class PostgresStorageProvider(BaseStorageProvider):
     # ----------------------------------------------------------------------- #
     def save_google_tokens(self, uid: str, tokens: dict) -> None:
         self.initialize()
-        now = int(time.time())
+        from psycopg.types.json import Jsonb
+
+        # Normalize scopes to list
+        scope_val = tokens.get("scopes") or tokens.get("scope")
+        if isinstance(scope_val, (list, tuple)):
+            scopes_list = list(scope_val)
+        elif isinstance(scope_val, str):
+            scopes_list = scope_val.split()
+        else:
+            scopes_list = []
+
+        # Normalize token_expiry to datetime with timezone (TIMESTAMPTZ)
+        raw_expiry = tokens.get("token_expiry")
+        expiry_dt = None
+        if raw_expiry is not None:
+            if isinstance(raw_expiry, datetime):
+                expiry_dt = raw_expiry if raw_expiry.tzinfo else raw_expiry.replace(tzinfo=timezone.utc)
+            elif isinstance(raw_expiry, (int, float)):
+                expiry_dt = datetime.fromtimestamp(float(raw_expiry), tz=timezone.utc)
+            elif isinstance(raw_expiry, str):
+                try:
+                    dt = datetime.fromisoformat(raw_expiry)
+                    expiry_dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    try:
+                        expiry_dt = datetime.fromtimestamp(float(raw_expiry), tz=timezone.utc)
+                    except Exception:
+                        expiry_dt = None
+
         with self._get_pool().connection() as conn:
             conn.execute(
                 """
                 INSERT INTO spark_google_tokens (
-                    tenant_id, user_ref, access_token, refresh_token, token_expiry, scope, updated_at
+                    tenant_id, user_ref, access_token, refresh_token, token_expiry, scopes, token_uri, email, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (tenant_id, user_ref)
                 DO UPDATE SET
                     access_token = EXCLUDED.access_token,
                     refresh_token = COALESCE(EXCLUDED.refresh_token, spark_google_tokens.refresh_token),
                     token_expiry = EXCLUDED.token_expiry,
-                    scope = COALESCE(EXCLUDED.scope, spark_google_tokens.scope),
-                    updated_at = EXCLUDED.updated_at
+                    scopes = COALESCE(EXCLUDED.scopes, spark_google_tokens.scopes),
+                    token_uri = COALESCE(EXCLUDED.token_uri, spark_google_tokens.token_uri),
+                    email = COALESCE(EXCLUDED.email, spark_google_tokens.email),
+                    updated_at = NOW()
                 """,
                 (
                     self.tenant_uuid,
                     uid,
                     tokens.get("access_token"),
                     tokens.get("refresh_token"),
-                    tokens.get("token_expiry"),
-                    tokens.get("scope"),
-                    now,
+                    expiry_dt,
+                    Jsonb(scopes_list),
+                    tokens.get("token_uri"),
+                    tokens.get("email"),
                 ),
             )
 
@@ -669,7 +702,7 @@ class PostgresStorageProvider(BaseStorageProvider):
         with self._get_pool().connection() as conn:
             row = conn.execute(
                 """
-                SELECT access_token, refresh_token, token_expiry, scope
+                SELECT access_token, refresh_token, token_expiry, scopes, token_uri, email
                 FROM spark_google_tokens
                 WHERE tenant_id = %s AND user_ref = %s
                 """,
@@ -677,11 +710,25 @@ class PostgresStorageProvider(BaseStorageProvider):
             ).fetchone()
         if not row or not row[0]:
             return None
+        scopes_data = row[3]
+        if isinstance(scopes_data, list):
+            scopes_list = scopes_data
+        elif isinstance(scopes_data, str):
+            scopes_list = scopes_data.split()
+        else:
+            scopes_list = []
+
+        expiry = row[2]
+        expiry_iso = expiry.isoformat() if isinstance(expiry, datetime) else str(expiry) if expiry else None
+
         return {
             "access_token": row[0],
             "refresh_token": row[1],
-            "token_expiry": row[2],
-            "scope": row[3],
+            "token_expiry": expiry_iso,
+            "scopes": scopes_list,
+            "scope": " ".join(scopes_list),
+            "token_uri": row[4],
+            "email": row[5],
         }
 
     def delete_google_tokens(self, uid: str) -> None:

@@ -109,11 +109,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           justifyContent: 'center',
           flexShrink: 0
         }}>
-          <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: '#0d0f17' }} />
+          <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: 'var(--panel)' }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
           <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '15px', fontWeight: 600, letterSpacing: '.10em', color: 'var(--text)' }}>HOMESPARK</span>
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo 3.1.15</span>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: '9.5px', fontWeight: 600, color: 'var(--accent)', letterSpacing: '.05em' }}>GeMo 3.2.0</span>
         </div>
       </div>
 
@@ -410,10 +410,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             bottom: '52px',
             left: '12px',
             width: '210px',
-            background: '#131722',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
+            background: 'var(--panel)',
+            border: '1px solid var(--border3)',
             borderRadius: '12px',
-            boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
+            boxShadow: '0 12px 32px rgba(0,0,0,0.25)',
             zIndex: 10,
             padding: '6px',
           }}>
@@ -435,7 +435,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 borderRadius: '8px',
                 transition: 'background 0.15s ease',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -457,7 +457,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   cursor: 'pointer',
                   transition: 'background 0.15s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 title="オンにするとAIが常に待機し、マイクボタンはミュート切り替えになります"
               >
@@ -474,7 +474,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   width: '28px',
                   height: '16px',
                   borderRadius: '10px',
-                  background: realtimeCallEnabled ? 'var(--accent)' : 'rgba(255,255,255,0.15)',
+                  background: realtimeCallEnabled ? 'var(--accent)' : 'var(--border3)',
                   position: 'relative',
                   transition: 'background 0.2s ease',
                   flexShrink: 0,
@@ -515,7 +515,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 borderRadius: '8px',
                 transition: 'background 0.15s ease',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -547,7 +547,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   borderRadius: '8px',
                   transition: 'background 0.15s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -580,7 +580,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   borderRadius: '8px',
                   transition: 'background 0.15s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -612,7 +612,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   gap: '10px',
                   borderRadius: '8px',
                   transition: 'background 0.15s ease',
-                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderTop: '1px solid var(--border2)',
                   marginTop: '4px'
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'; }}
@@ -709,8 +709,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span style={{ 
                 width: '28px', 
                 height: '28px', 
-                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 
-                border: '1px solid rgba(255, 255, 255, 0.12)', 
+                background: 'var(--panel2)', 
+                border: '1px solid var(--border3)', 
                 flex: 'none', 
                 display: 'flex', 
                 alignItems: 'center', 
@@ -718,9 +718,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 fontFamily: "'IBM Plex Mono',monospace", 
                 fontSize: '11.5px', 
                 fontWeight: 600,
-                color: '#60a5fa', 
+                color: '#4285F4', 
                 borderRadius: '50%',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
               }}>
                 {(user.displayName || user.email || 'U').charAt(0).toUpperCase()}
               </span>
@@ -761,22 +761,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 gap: '8px',
                 width: '100%', 
                 padding: '10px 12px', 
-                border: '1px solid rgba(255, 255, 255, 0.15)', 
-                background: 'linear-gradient(180deg, #1e2433 0%, #131722 100%)', 
+                border: '1px solid var(--border3)', 
+                background: 'var(--panel2)', 
                 cursor: 'pointer', 
                 fontFamily: "'IBM Plex Sans',system-ui,sans-serif", 
                 fontSize: '12.5px', 
                 fontWeight: 600, 
-                color: '#ffffff', 
+                color: 'var(--text)', 
                 borderRadius: '10px', 
-                boxShadow: '0 2px 8px rgba(0,0,0,0.3)', 
+                boxShadow: '0 2px 6px rgba(0,0,0,0.08)', 
                 transition: 'all 0.2s ease'
               }}
               onMouseEnter={(e) => { 
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)'; 
+                e.currentTarget.style.background = 'var(--hover)';
+                e.currentTarget.style.borderColor = '#4285F4'; 
               }}
               onMouseLeave={(e) => { 
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'; 
+                e.currentTarget.style.background = 'var(--panel2)';
+                e.currentTarget.style.borderColor = 'var(--border3)'; 
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
