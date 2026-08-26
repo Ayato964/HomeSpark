@@ -35,7 +35,7 @@ logger = logging.getLogger("sales_spark")
 # Modules required for local (in-process / dedicated worker) speech recognition.
 _STT_MODULES = ("torch", "faster_whisper")
 # Modules required by Irodori-TTS-Lite's app_voice.py on top of the STT set.
-_TTS_MODULES = ("torch", "scipy", "pyopenjtalk", "irodori_tts_lite", "irodori_tts")
+_TTS_MODULES = ("torch", "scipy", "pyopenjtalk", "irodori_tts_lite", "irodori_tts", "dacvae")
 
 _TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
 _TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
@@ -46,6 +46,11 @@ _ONECOMP_ZIP = (
     "https://github.com/kizuna-intelligence/onecompression-runtime/archive/refs/heads/main.zip"
 )
 _IRODORI_TTS_ZIP = "https://github.com/Aratako/Irodori-TTS/archive/refs/heads/main.zip"
+# irodori_tts.codec does `from dacvae import DACVAE` at model-load time. dacvae
+# is not on PyPI - it lives in Meta's repo - and installing Irodori-TTS with
+# --no-deps skips it, which made the engine die during startup with
+# ModuleNotFoundError while the port stayed shut.
+_DACVAE_ZIP = "https://github.com/facebookresearch/dacvae/archive/refs/heads/main.zip"
 
 _SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
@@ -336,7 +341,16 @@ INSTALL_PROFILES: dict[str, dict] = {
             # packages resolved in the preceding steps.
             ("onecompression-runtime を取得中", _pip("--no-deps", _ONECOMP_ZIP)),
             ("Irodori-TTS 本体を取得中", _pip("--no-deps", _IRODORI_TTS_ZIP)),
+            # WITH dependencies: dacvae needs descript-audiotools/argbind/einops
+            # at import time. torch/torchaudio are unpinned here, so the CUDA
+            # 12.4 build installed above is left alone.
+            ("音声コーデック (DAC-VAE) を取得中", _pip(_DACVAE_ZIP)),
             ("Irodori-TTS-Lite を登録中", _pip("--no-deps", str(_tts_source_dir()))),
+            # descript-audiotools declares protobuf<3.20, which drags protobuf
+            # back to 3.19 and breaks google-api-core (Calendar / Gmail). The
+            # pin is resolve-time only - audiotools runs fine on protobuf 5+ -
+            # so restore a version the Google client libraries accept.
+            ("Google 連携ライブラリの整合性を復元中", _pip("--upgrade", "protobuf>=6.33.5")),
         ],
     },
 }

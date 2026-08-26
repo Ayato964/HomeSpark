@@ -549,7 +549,10 @@ async function checkLocalTtsStack(venvPython: string): Promise<boolean> {
   if (!fs.existsSync(venvPython)) return false;
   try {
     await execAsync(
-      `"${venvPython}" -c "import torch, scipy, pyopenjtalk, irodori_tts_lite"`,
+      // Keep this list in sync with _TTS_MODULES in core/voice_runtime.py.
+      // dacvae in particular is imported only when the model loads, so leaving
+      // it out here let us spawn an engine that was guaranteed to die.
+      `"${venvPython}" -c "import torch, scipy, pyopenjtalk, irodori_tts_lite, irodori_tts, dacvae"`,
       { timeout: 20000 }
     );
     return true;
