@@ -518,6 +518,33 @@ async function checkGpuPresent(venvPython: string): Promise<boolean> {
 // heavy voice stack may simply not be there. Spawning app_voice.py without it
 // just produces a process that dies on `import torch`, which then surfaces as a
 // confusing "connection refused" in the startup diagnostics.
+// app_voice.py publishes its own state here, because loading the TTS + Whisper
+// models takes about a minute during which the port stays shut. Without this we
+// cannot tell a still-loading engine from a dead one, and would kill and respawn
+// a healthy instance on every launch.
+function readVoiceEngineStatus(): { state: string; pid?: number; port?: number } | null {
+  try {
+    const appdata = process.env.APPDATA || path.join(require("os").homedir(), ".homespark");
+    const file = path.join(appdata, "HomeSpark", "data", "voice_engine_status.json");
+    if (!fs.existsSync(file)) return null;
+    return JSON.parse(fs.readFileSync(file, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    const out = execSync(`tasklist /FI "PID eq ${pid}" /NH`, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return out.includes(String(pid));
+  } catch {
+    return false;
+  }
+}
+
 async function checkLocalTtsStack(venvPython: string): Promise<boolean> {
   if (!fs.existsSync(venvPython)) return false;
   try {
@@ -685,7 +712,22 @@ async function ensureBackendServices() {
   if (hasGpu && hasLocalTtsStack) {
     updateSplash(`Irodori-TTS & Whisper 音声エンジンを起動中 (${resolvedTtsPort})...`, 85, "CUDA 高速音声推論");
     const ttsAlive = await checkPortAlive(resolvedTtsPort);
-    if (!ttsAlive) {
+
+    // An engine part-way through loading its models has not bound the port yet.
+    // Killing it here and spawning a replacement just restarts the (slow) load
+    // and doubles VRAM pressure.
+    const engineStatus = readVoiceEngineStatus();
+    const engineLoading =
+      !!engineStatus &&
+      engineStatus.state === "loading" &&
+      !!engineStatus.pid &&
+      isPidAlive(engineStatus.pid);
+
+    if (engineLoading) {
+      addStartupLog(
+        `TTS/Whisper engine (pid ${engineStatus!.pid}) is already loading its models; leaving it alone.`
+      );
+    } else if (!ttsAlive) {
       await killProcessOnPort(resolvedTtsPort);
       const ttsScript = path.join(ttsDir, "app_voice.py");
       if (fs.existsSync(venvPython) && fs.existsSync(ttsScript)) {
@@ -717,14 +759,18 @@ async function ensureBackendServices() {
           ttsProc.on("error", (err) => addStartupLog(`[TTS Proc Error] ${err.message}`));
           spawnedProcesses.push(ttsProc);
 
-          // Wait up to 10s for TTS server to initialize models and start listening
-          updateSplash(`Irodori-TTS & Whisper モデルのVRAM展開を待機中 (${resolvedTtsPort})...`, 90, "モデル常駐中");
-          const ttsReady = await waitForBackendReady(resolvedTtsPort, 10000);
-          if (ttsReady) {
-            addStartupLog(`TTS/Whisper engine is verified ready on port ${resolvedTtsPort}!`);
-          } else {
-            addStartupLog(`TTS engine initial response pending, continuing in background.`);
-          }
+          // Model load takes ~60-90s. Do NOT await it: that would hold the
+          // splash screen hostage for the whole load. Watch it in the
+          // background and just record the outcome in the startup log; the UI
+          // learns the engine is ready from /api/system/voice-engine/status.
+          updateSplash("音声エンジンをバックグラウンドで初期化中...", 90, "モデル読み込みは1〜2分かかります");
+          void waitForBackendReady(resolvedTtsPort, 180000).then((ttsReady) => {
+            addStartupLog(
+              ttsReady
+                ? `TTS/Whisper engine is ready on port ${resolvedTtsPort}.`
+                : `TTS engine did not respond within 180s on port ${resolvedTtsPort}.`
+            );
+          });
         } catch (e) {
           addStartupLog(`Failed to spawn TTS: ${e}`);
         }

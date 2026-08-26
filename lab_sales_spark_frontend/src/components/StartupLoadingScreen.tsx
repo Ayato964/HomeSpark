@@ -34,6 +34,7 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
   const [isFinishing, setIsFinishing] = useState<boolean>(false);
   const [voiceSupported, setVoiceSupported] = useState<boolean>(false);
   const [capability, setCapability] = useState<VoiceCapability | null>(null);
+  const [ttsPending, setTtsPending] = useState<boolean>(false);
 
   const logRef = useRef<HTMLDivElement>(null);
   // `runStartupDiagnostics` finishes inside a timeout, after which the state
@@ -146,6 +147,16 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
       // supported configuration, not a fault, so it must not read as a warning.
       if (diag.tts?.pass) {
         updateStep(2, { status: 'success', subLabel: `Irodori-TTS 合成成功 (${diag.tts.details?.latency_ms || 0}ms)` });
+      } else if (diag.tts?.pending) {
+        // The engine holds its port shut for ~1 minute while loading models.
+        // That is startup, not breakage - say so, and let the poll below flip
+        // this to success once it is actually ready.
+        updateStep(2, {
+          status: 'running',
+          subLabel: 'モデル読み込み中 (1〜2分) - 完了までは Web Speech API で発話します',
+        });
+        addLog('⏳ ローカル音声エンジンはモデルを読み込み中です。準備でき次第、自動で切り替わります。');
+        setTtsPending(true);
       } else if (diag.tts?.skipped) {
         updateStep(2, {
           status: 'success',
@@ -216,6 +227,35 @@ export const StartupLoadingScreen: React.FC<StartupLoadingScreenProps> = ({ onCo
   useEffect(() => {
     runStartupDiagnostics();
   }, []);
+
+  // The startup check necessarily runs seconds after launch, long before the
+  // engine finishes loading. Keep watching so the report ends up truthful
+  // instead of frozen on "loading".
+  useEffect(() => {
+    if (!ttsPending) return;
+    const chatService = new ChatService();
+    const timer = setInterval(async () => {
+      try {
+        const st = await chatService.getVoiceEngineStatus();
+        if (st.state === 'ready') {
+          updateStep(2, { status: 'success', subLabel: 'ローカル音声エンジン起動完了' });
+          addLog('✅ ローカル音声エンジンの読み込みが完了しました。');
+          setTtsPending(false);
+        } else if (st.state === 'error') {
+          updateStep(2, {
+            status: 'warning',
+            subLabel: '音声エンジンの初期化に失敗 (Web Speech API で継続)',
+            errorDetail: st.error,
+          });
+          addLog(`⚠️ 音声エンジンの初期化に失敗しました: ${st.error || '不明なエラー'}`);
+          setTtsPending(false);
+        }
+      } catch {
+        // Best-effort: a failed poll just means we try again.
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [ttsPending]);
 
   useEffect(() => {
     if (logRef.current) {

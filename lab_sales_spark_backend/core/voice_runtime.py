@@ -146,6 +146,58 @@ def detect_gpu() -> dict:
     return {"has_gpu": False, "gpu_name": None, "vram": None, "source": "none"}
 
 
+def engine_status() -> dict:
+    """Read the local voice engine's self-reported state.
+
+    Written by Irodori-TTS-Lite/app_voice.py. Loading the models takes about a
+    minute, during which the port is closed and a plain connection probe cannot
+    tell "still starting" from "not running at all"."""
+    appdata = os.getenv("APPDATA") or os.path.join(os.path.expanduser("~"), ".homespark")
+    path = Path(appdata) / "HomeSpark" / "data" / "voice_engine_status.json"
+
+    if not path.exists():
+        return {"state": "absent"}
+    try:
+        import json
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {"state": "absent"}
+
+    state = data.get("state")
+    pid = data.get("pid")
+    age = time.time() - float(data.get("updated_at") or 0)
+
+    # A status file left behind by a killed process must not read as "loading"
+    # forever; confirm the process is still there.
+    if state in ("loading", "ready") and pid and not _pid_alive(int(pid)):
+        return {"state": "stale", "port": data.get("port"), "age_sec": age}
+
+    data["age_sec"] = age
+    return data
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                creationflags=_SUBPROCESS_FLAGS,
+            )
+            return str(pid) in (out.stdout or "")
+        except (OSError, subprocess.SubprocessError):
+            return True  # cannot tell - assume alive rather than cry wolf
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
 def pip_available() -> bool:
     try:
         out = subprocess.run(

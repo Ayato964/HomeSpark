@@ -22,6 +22,17 @@ export interface VoiceCapability {
   error?: string;
 }
 
+/** What the local TTS/Whisper worker reports about itself. */
+export interface VoiceEngineStatus {
+  /** absent = never started, stale = status file outlived its process. */
+  state: 'absent' | 'loading' | 'ready' | 'error' | 'stale';
+  pid?: number;
+  port?: number;
+  endpoint?: string;
+  age_sec?: number;
+  error?: string;
+}
+
 export interface VoiceInstallStatus {
   state: 'idle' | 'running' | 'success' | 'error';
   profile: VoiceProfileId | null;
@@ -893,6 +904,15 @@ export class ChatService {
     return response.json();
   }
 
+  /** Live state of the local TTS/Whisper worker. */
+  public async getVoiceEngineStatus(): Promise<VoiceEngineStatus> {
+    const response = await fetch(`${this.backendUrl}/api/system/voice-engine/status`, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`音声エンジンの状態取得に失敗しました: ${response.status}`);
+    }
+    return response.json();
+  }
+
   /** Poll the progress of a running/finished voice engine install. */
   public async getVoiceEngineInstallStatus(): Promise<VoiceInstallStatus> {
     const response = await fetch(`${this.backendUrl}/api/system/voice-engine/install-status`, { cache: 'no-store' });
@@ -908,9 +928,10 @@ export class ChatService {
     mode?: VoiceMode;
     capability?: VoiceCapability;
     voice_ready?: boolean;
+    tts_pending?: boolean;
     local_voice_active?: boolean;
     gpu: { pass: boolean; details: any };
-    tts: { pass: boolean; skipped?: boolean; details: any };
+    tts: { pass: boolean; skipped?: boolean; pending?: boolean; details: any };
     stt: { pass: boolean; skipped?: boolean; details: any };
     llm: { pass: boolean; details: any };
     logs: string[];

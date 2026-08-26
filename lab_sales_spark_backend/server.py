@@ -1619,6 +1619,19 @@ async def install_voice_engine(req: VoiceEngineInstallRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/api/system/voice-engine/status")
+async def get_voice_engine_status():
+    """Live state of the local TTS/Whisper worker (absent | loading | ready | error).
+
+    Lets the UI show "起動中" while the engine loads its models instead of
+    reporting the closed port as a failure."""
+    from core import voice_runtime
+
+    status = voice_runtime.engine_status()
+    status["endpoint"] = _resolve_tts_server_url()
+    return status
+
+
 @app.get("/api/system/voice-engine/install-status")
 async def get_voice_engine_install_status():
     from core import voice_runtime
@@ -1809,12 +1822,44 @@ async def run_voice_diagnostics():
                 }
         except Exception as e:
             tts_latency = int((time.time() - tts_start) * 1000)
-            log(f"      ❌ TTS合成サーバー接続失敗 ({tts_latency} ms): {e}")
-            log(f"      ℹ️ 音声合成ワーカー ({tts_url}) が起動していない可能性があります。")
-            results["tts"] = {
-                "pass": False,
-                "details": {"error": str(e), "latency_ms": tts_latency, "endpoint": tts_url}
-            }
+            # A closed port means "not ready", which is NOT the same as broken:
+            # the engine holds the port shut for ~1 minute while it loads the TTS
+            # and Whisper models into VRAM. Ask the engine what it is doing
+            # before calling this a failure.
+            engine = voice_runtime.engine_status()
+            engine_state = engine.get("state")
+
+            if engine_state == "loading":
+                wait_sec = int(engine.get("age_sec") or 0)
+                log(f"      ⏳ 音声エンジンはモデル読み込み中です (経過 {wait_sec} 秒)")
+                log("      ℹ️ 初回起動やモデル更新後は 1〜2 分かかります。完了すると自動的に切り替わります。")
+                results["tts"] = {
+                    "pass": False,
+                    "pending": True,
+                    "details": {
+                        "state": "loading",
+                        "elapsed_sec": wait_sec,
+                        "endpoint": tts_url,
+                    },
+                }
+            elif engine_state == "error":
+                log(f"      ❌ 音声エンジンの初期化に失敗しました: {engine.get('error')}")
+                results["tts"] = {
+                    "pass": False,
+                    "details": {"error": engine.get("error"), "state": "error", "endpoint": tts_url},
+                }
+            else:
+                log(f"      ❌ TTS合成サーバー接続失敗 ({tts_latency} ms): {e}")
+                log(f"      ℹ️ 音声合成ワーカー ({tts_url}) が起動していません。アプリを再起動してください。")
+                results["tts"] = {
+                    "pass": False,
+                    "details": {
+                        "error": str(e),
+                        "latency_ms": tts_latency,
+                        "endpoint": tts_url,
+                        "state": engine_state or "absent",
+                    },
+                }
 
     # -------------------------------------------------------------
     # Step 3: STT Engine (faster-whisper) Transcription Diagnostic
@@ -1951,15 +1996,20 @@ async def run_voice_diagnostics():
     results["total_latency_ms"] = total_latency
     # A component that this configuration is not expected to run counts as OK:
     # a GPU-less machine using Web Speech + cloud STT is fully supported.
-    tts_ok = results["tts"]["pass"] or results["tts"].get("skipped", False)
-    stt_ok = results["stt"]["pass"] or results["stt"].get("skipped", False)
+    tts_pending = results["tts"].get("pending", False)
+    tts_ok = results["tts"]["pass"] or results["tts"].get("skipped", False) or tts_pending
+    stt_ok = results["stt"]["pass"] or results["stt"].get("skipped", False) or tts_pending
     all_passed = tts_ok and stt_ok and results["llm"]["pass"]
+    results["tts_pending"] = tts_pending
     results["overall_pass"] = all_passed
     results["voice_ready"] = all_passed
     results["local_voice_active"] = results["tts"]["pass"] and results["stt"]["pass"]
 
     log("==================================================================")
-    if all_passed and mode == "local_gpu":
+    if tts_pending and results["llm"]["pass"]:
+        log(f"⏳ 【総合診断結果: 起動中】 音声エンジンの読み込み完了を待っています (所要時間: {total_latency} ms)")
+        log("    - 完了までは Web Speech API で発話します。読み込みが終わると自動的にローカル音声へ切り替わります。")
+    elif all_passed and mode == "local_gpu":
         log(f"🎉 【総合診断結果: 合格 (PASS)】 ローカルGPUによるリアルタイム音声会話が利用できます！ (合計所要時間: {total_latency} ms)")
     elif all_passed:
         log(f"✅ 【総合診断結果: 合格 (PASS)】 {_MODE_LABELS.get(mode, mode)} で音声会話が利用できます (合計所要時間: {total_latency} ms)")

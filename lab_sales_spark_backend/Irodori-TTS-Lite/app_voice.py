@@ -1,6 +1,7 @@
 import io
 import os
 import sys
+import time
 import tempfile
 import base64
 import asyncio
@@ -122,13 +123,46 @@ class AISpeakingState:
 # Module default speaking state
 ai_state = AISpeakingState()
 
+# --------------------------------------------------------------------------- #
+# Engine status file
+# --------------------------------------------------------------------------- #
+# Loading the TTS + Whisper models takes roughly a minute, and uvicorn only
+# binds the port once that finishes. From the outside a still-loading engine is
+# indistinguishable from a dead one - both refuse the connection - so the
+# startup diagnostics used to report a perfectly healthy engine as a failure.
+# Publish the real state here so the backend can tell "起動中" from "落ちている".
+def _status_file_path() -> str:
+    appdata = os.getenv("APPDATA") or os.path.join(os.path.expanduser("~"), ".homespark")
+    data_dir = os.path.join(appdata, "HomeSpark", "data")
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, "voice_engine_status.json")
+
+
+def _write_status(state: str, **extra) -> None:
+    """Best-effort: never let status reporting break the engine itself."""
+    try:
+        payload = {
+            "state": state,          # loading | ready | error
+            "pid": os.getpid(),
+            "port": int(os.getenv("PORT", "8008")),
+            "updated_at": time.time(),
+            **extra,
+        }
+        with open(_status_file_path(), "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Status] Could not write engine status: {e}", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global tts_runtime, stt_model, openai_client
     print("==================================================", flush=True)
     print("Initializing Irodori-TTS & Whisper & Gemma API Runtime...", flush=True)
     print("==================================================", flush=True)
-    
+
+    _write_status("loading")
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Detected Compute Device: {device}", flush=True)
 
@@ -170,9 +204,11 @@ async def lifespan(app: FastAPI):
         print("==================================================", flush=True)
         print("All voice models resident in memory & ready.", flush=True)
         print("==================================================", flush=True)
+        _write_status("ready", device=device)
 
     except Exception as e:
         print(f"CRITICAL ERROR loading models: {e}", flush=True)
+        _write_status("error", error=str(e))
         raise e
     yield
 

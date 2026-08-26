@@ -102,10 +102,24 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           flexDirection: 'column',
           gap: '24px'
         }}>
-          {/* Latest Version 3.3.1 */}
+          {/* Latest Version 3.3.2 */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <span style={{ fontSize: '11px', fontWeight: 600, background: '#4285F4', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.{appVersion}</span>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-27</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>
+              <li><strong>音声エンジンの起動中を「失敗」と表示しなくなりました</strong>: モデルの読み込みには 1〜2 分かかり、その間ポートは閉じています。起動診断がこれを接続失敗として ❌ 表示していました。「⏳ 読み込み中」と表示し、完了すると自動的に ✅ に切り替わります。</li>
+              <li><strong>読み込み中のエンジンを強制終了しなくなりました</strong>: 起動時にポートが閉じていると別インスタンスを起動しようとして、読み込み中のエンジンと二重になっていました。</li>
+              <li><strong>起動待ちでスプラッシュが固まらないように</strong>: 音声エンジンの初期化はバックグラウンドで待つようになり、アプリの起動が速くなります。</li>
+              <li><strong>音声エンジンの状態を確認できるようになりました</strong>: 未起動 / 読み込み中 / 準備完了 / 初期化エラー を区別して表示します。</li>
+            </ul>
+          </div>
+
+          {/* ver 3.3.1 */}
+          <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, background: 'var(--border3)', color: 'var(--text)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.3.3.1</span>
               <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-27</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>
