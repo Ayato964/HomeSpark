@@ -11,4 +11,4 @@
  * authoritative after an auto-update. Use `APP_VERSION` as the synchronous
  * initial value / web fallback.
  */
-export const APP_VERSION: string = process.env.NEXT_PUBLIC_APP_VERSION || '3.3.0';
+export const APP_VERSION: string = process.env.NEXT_PUBLIC_APP_VERSION || '3.3.1';

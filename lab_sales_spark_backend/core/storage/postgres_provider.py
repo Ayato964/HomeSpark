@@ -28,6 +28,13 @@ def _as_uuid(value: t.Any) -> uuid.UUID:
         return uuid.uuid5(uuid.NAMESPACE_DNS, str(value))
 
 
+# Columns of spark_user_profiles, mirrored from the SQLite provider.
+USER_PROFILE_FIELDS = (
+    "name", "company", "role", "email", "phone",
+    "address", "postal_code", "hobbies", "notes",
+)
+
+
 class PostgresStorageProvider(BaseStorageProvider):
     """PostgreSQL (Neon) Cloud Storage Provider."""
 
@@ -163,6 +170,22 @@ class PostgresStorageProvider(BaseStorageProvider):
                     scopes JSONB DEFAULT '[]',
                     token_uri TEXT,
                     email TEXT,
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (tenant_id, user_ref)
+                );
+
+                CREATE TABLE IF NOT EXISTS spark_user_profiles (
+                    tenant_id UUID NOT NULL,
+                    user_ref TEXT NOT NULL,
+                    name TEXT,
+                    company TEXT,
+                    role TEXT,
+                    email TEXT,
+                    phone TEXT,
+                    address TEXT,
+                    postal_code TEXT,
+                    hobbies TEXT,
+                    notes TEXT,
                     updated_at TIMESTAMPTZ DEFAULT NOW(),
                     PRIMARY KEY (tenant_id, user_ref)
                 );
@@ -730,6 +753,51 @@ class PostgresStorageProvider(BaseStorageProvider):
             "token_uri": row[4],
             "email": row[5],
         }
+
+    # ----------------------------------------------------------------------- #
+    # User Profile
+    # ----------------------------------------------------------------------- #
+    def get_user_profile(self, uid: str) -> dict | None:
+        self.initialize()
+        cols = ", ".join(USER_PROFILE_FIELDS)
+        with self._get_pool().connection() as conn:
+            row = conn.execute(
+                f"""
+                SELECT {cols}
+                FROM spark_user_profiles
+                WHERE tenant_id = %s AND user_ref = %s
+                """,
+                (self.tenant_uuid, uid),
+            ).fetchone()
+        if not row:
+            return None
+        return dict(zip(USER_PROFILE_FIELDS, row))
+
+    def upsert_user_profile(self, uid: str, profile_data: dict) -> dict:
+        self.initialize()
+        # Only overwrite the keys the caller actually sent, so a partial update
+        # cannot silently blank out the rest of the profile.
+        current = self.get_user_profile(uid) or {}
+        merged = {f: current.get(f) for f in USER_PROFILE_FIELDS}
+        for f in USER_PROFILE_FIELDS:
+            if f in profile_data and profile_data[f] is not None:
+                merged[f] = profile_data[f]
+
+        cols = ", ".join(USER_PROFILE_FIELDS)
+        placeholders = ", ".join(["%s"] * len(USER_PROFILE_FIELDS))
+        assignments = ", ".join(f"{f} = EXCLUDED.{f}" for f in USER_PROFILE_FIELDS)
+        with self._get_pool().connection() as conn:
+            conn.execute(
+                f"""
+                INSERT INTO spark_user_profiles (tenant_id, user_ref, {cols}, updated_at)
+                VALUES (%s, %s, {placeholders}, NOW())
+                ON CONFLICT (tenant_id, user_ref) DO UPDATE SET
+                    {assignments},
+                    updated_at = NOW()
+                """,
+                (self.tenant_uuid, uid, *[merged[f] for f in USER_PROFILE_FIELDS]),
+            )
+        return merged
 
     def delete_google_tokens(self, uid: str) -> None:
         self.initialize()

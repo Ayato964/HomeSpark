@@ -102,10 +102,26 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           flexDirection: 'column',
           gap: '24px'
         }}>
-          {/* Latest Version 3.3.0 */}
+          {/* Latest Version 3.3.1 */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <span style={{ fontSize: '11px', fontWeight: 600, background: '#4285F4', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.{appVersion}</span>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-27</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>
+              <li><strong>再起動のたびにログイン・プロフィールがリセットされる問題を修正</strong>: 画面が毎回異なるポートで配信されていたため、ブラウザ保存領域が起動ごとに新規作成されていました。固定の内部アドレスに変更し、Google 連携とセッションが保持されるようになりました。</li>
+              <li><strong>個人プロフィールが保存されるようになりました</strong>: 保存処理が未実装のままで、入力内容がどこにも記録されていませんでした。データベースに保存し、再起動後も引き継ぎます。</li>
+              <li><strong>チャット履歴がアプリ更新で消える問題を修正</strong>: ローカルデータベースをアプリのインストール先から %APPDATA% に移動しました。既存のデータは初回起動時に自動移行されます。</li>
+              <li><strong>音声エンジン導入の「CMake is not found」エラーを解消</strong>: ビルドが必要なパッケージをやめ、すべて配布済みバイナリで導入するようにしました。CMake や C++ ビルドツールは不要です。</li>
+              <li><strong>GPU 搭載機に Irodori-TTS の導入をご案内</strong>: 対応 GPU があるのにローカル音声合成が未導入の場合、起動時に導入をお尋ねし、そのまま進捗つきで導入できるようになりました。</li>
+              <li><strong>導入失敗時のエラー表示を改善</strong>: pip の終了コードだけでなく、原因と対処方法を日本語で表示します。</li>
+            </ul>
+          </div>
+
+          {/* ver 3.3.0 */}
+          <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, background: 'var(--border3)', color: 'var(--text)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.3.3.0</span>
               <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-26</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>

@@ -6,7 +6,9 @@ Stores chats, messages, memory/skills, digital cards, and settings in a local SQ
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import sqlite3
 import time
 import typing as t
@@ -17,11 +19,65 @@ from pathlib import Path
 from .base import BaseStorageProvider
 
 
-def _get_default_sqlite_path() -> str:
+# Columns of spark_user_profiles, in the order the table declares them.
+USER_PROFILE_FIELDS = (
+    "name", "company", "role", "email", "phone",
+    "address", "postal_code", "hobbies", "notes",
+)
+
+
+def _legacy_sqlite_path() -> Path:
+    """Where the database used to live: inside the app's own install tree."""
     backend_dir = Path(__file__).resolve().parent.parent.parent
-    data_dir = backend_dir / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return str(data_dir / "homespark_local.db")
+    return backend_dir / "data" / "homespark_local.db"
+
+
+def _get_default_sqlite_path() -> str:
+    """Resolve the local database path, preferring per-user application data.
+
+    The database used to sit under the backend directory, which for the packaged
+    desktop app means `...\Programs\HomeSpark GeMo
+esourcespp_backend\data`.
+    That tree is replaced wholesale by the installer, so every auto-update wiped
+    the user's chat history. Keep it in %APPDATA% instead, and migrate an
+    existing database on first run so nothing is lost."""
+    appdata = os.getenv("APPDATA") or os.getenv("XDG_DATA_HOME")
+    if not appdata:
+        home = Path.home()
+        appdata = str(home / ".local" / "share") if os.name != "nt" else str(home / "AppData" / "Roaming")
+
+    data_dir = Path(appdata) / "HomeSpark" / "data"
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Unwritable APPDATA (locked-down profile): fall back to the old spot.
+        legacy = _legacy_sqlite_path()
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        return str(legacy)
+
+    db_path = data_dir / "homespark_local.db"
+
+    if not db_path.exists():
+        legacy = _legacy_sqlite_path()
+        if legacy.exists() and legacy.stat().st_size > 0:
+            try:
+                # Copy (not move): if this build is rolled back, the old install
+                # still finds its database where it expects it.
+                shutil.copy2(legacy, db_path)
+                for suffix in ("-wal", "-shm"):
+                    side = legacy.with_name(legacy.name + suffix)
+                    if side.exists():
+                        shutil.copy2(side, db_path.with_name(db_path.name + suffix))
+                logging.getLogger("sales_spark").info(
+                    f"[SQLite] Migrated local database from {legacy} to {db_path}"
+                )
+            except OSError as e:
+                logging.getLogger("sales_spark").warning(
+                    f"[SQLite] Could not migrate {legacy} to {db_path}: {e}. Using the legacy path."
+                )
+                return str(legacy)
+
+    return str(db_path)
 
 
 class SqliteStorageProvider(BaseStorageProvider):
@@ -145,6 +201,22 @@ class SqliteStorageProvider(BaseStorageProvider):
                     token_expiry INTEGER,
                     scope TEXT,
                     updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (tenant_id, user_ref)
+                );
+
+                CREATE TABLE IF NOT EXISTS spark_user_profiles (
+                    tenant_id TEXT NOT NULL,
+                    user_ref TEXT NOT NULL,
+                    name TEXT,
+                    company TEXT,
+                    role TEXT,
+                    email TEXT,
+                    phone TEXT,
+                    address TEXT,
+                    postal_code TEXT,
+                    hobbies TEXT,
+                    notes TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (tenant_id, user_ref)
                 );
                 """
@@ -694,6 +766,51 @@ class SqliteStorageProvider(BaseStorageProvider):
             "scope": row["scope"],
             "scopes": scope_str.split() if scope_str else [],
         }
+
+    # ----------------------------------------------------------------------- #
+    # User Profile
+    # ----------------------------------------------------------------------- #
+    def get_user_profile(self, uid: str) -> dict | None:
+        self.initialize()
+        with self._get_conn() as conn:
+            row = conn.execute(
+                f"""
+                SELECT {", ".join(USER_PROFILE_FIELDS)}
+                FROM spark_user_profiles
+                WHERE user_ref = ?
+                """,
+                (uid,),
+            ).fetchone()
+        if not row:
+            return None
+        return {f: row[f] for f in USER_PROFILE_FIELDS}
+
+    def upsert_user_profile(self, uid: str, profile_data: dict) -> dict:
+        self.initialize()
+        # Only overwrite the keys the caller actually sent, so a partial update
+        # cannot silently blank out the rest of the profile.
+        current = self.get_user_profile(uid) or {}
+        merged = {f: current.get(f) for f in USER_PROFILE_FIELDS}
+        for f in USER_PROFILE_FIELDS:
+            if f in profile_data and profile_data[f] is not None:
+                merged[f] = profile_data[f]
+
+        assignments = ", ".join(f"{f} = excluded.{f}" for f in USER_PROFILE_FIELDS)
+        placeholders = ", ".join("?" for _ in USER_PROFILE_FIELDS)
+        with self._get_conn() as conn:
+            conn.execute(
+                f"""
+                INSERT INTO spark_user_profiles (
+                    tenant_id, user_ref, {", ".join(USER_PROFILE_FIELDS)}, updated_at
+                )
+                VALUES ('00000000-0000-0000-0000-000000000001', ?, {placeholders}, CURRENT_TIMESTAMP)
+                ON CONFLICT(tenant_id, user_ref) DO UPDATE SET
+                    {assignments},
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (uid, *[merged[f] for f in USER_PROFILE_FIELDS]),
+            )
+        return merged
 
     def delete_google_tokens(self, uid: str) -> None:
         self.initialize()

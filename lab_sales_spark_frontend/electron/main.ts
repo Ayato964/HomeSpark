@@ -11,6 +11,7 @@ import {
   screen,
   dialog,
   shell,
+  protocol,
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
@@ -184,6 +185,102 @@ function getStaticOutDir(): string {
   }
 
   return path.join(app.getAppPath(), "out");
+}
+
+// Stable origin for the renderer.
+//
+// The renderer used to be served over an HTTP server bound to port 0, so the
+// OS handed out a different port on every launch. localStorage is keyed by
+// origin (scheme://host:port), so every restart landed on a brand-new, empty
+// store: the session token, the onboarding flag and the cached backend port all
+// vanished, and the user had to re-link Google and re-enter their profile every
+// single time. A custom scheme has a fixed origin (`homespark://app`) for the
+// life of the install, so browser storage now survives restarts and updates.
+const APP_SCHEME = "homespark";
+const APP_ORIGIN = `${APP_SCHEME}://app`;
+let appProtocolRegistered = false;
+
+// Must run before `app.whenReady()`.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_SCHEME,
+    privileges: {
+      standard: true,      // gives the scheme a real, comparable origin
+      secure: true,        // secure context: getUserMedia / crypto.subtle work
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
+
+function registerAppProtocol(outDir: string): void {
+  if (appProtocolRegistered) return;
+
+  protocol.handle(APP_SCHEME, async (request) => {
+    try {
+      const url = new URL(request.url);
+      let reqPath = decodeURIComponent(url.pathname);
+      if (!reqPath || reqPath === "/") reqPath = "/index.html";
+
+      let filePath = path.join(outDir, reqPath);
+
+      // Keep everything inside outDir: a crafted `..` path must not escape.
+      const rootReal = path.resolve(outDir);
+      if (!path.resolve(filePath).startsWith(rootReal)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      // Clean URLs and SPA fallback, mirroring the old HTTP server.
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        if (fs.existsSync(`${filePath}.html`)) {
+          filePath = `${filePath}.html`;
+        } else if (fs.existsSync(path.join(filePath, "index.html"))) {
+          filePath = path.join(filePath, "index.html");
+        } else {
+          filePath = path.join(outDir, "index.html");
+        }
+      }
+
+      if (!fs.existsSync(filePath)) {
+        return new Response("Not Found", { status: 404 });
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      return new Response(fs.readFileSync(filePath), {
+        status: 200,
+        headers: { "Content-Type": MIME_TYPES[ext] || "application/octet-stream" },
+      });
+    } catch (err) {
+      console.error("[App Protocol Error]:", err);
+      return new Response("Internal Error", { status: 500 });
+    }
+  });
+
+  appProtocolRegistered = true;
+  console.log(`[Electron] Serving renderer from ${APP_ORIGIN} (stable origin) out of ${outDir}`);
+}
+
+/**
+ * Resolve the URL the main window should load.
+ *
+ * Prefers the fixed-origin custom scheme whenever a static export is present;
+ * falls back to the dynamic-port HTTP server only when there is nothing to
+ * serve (i.e. `next dev` drives the UI instead).
+ */
+async function resolveFrontendUrl(): Promise<string> {
+  const outDir = getStaticOutDir();
+  if (fs.existsSync(path.join(outDir, "index.html"))) {
+    registerAppProtocol(outDir);
+    dynamicFrontendUrl = APP_ORIGIN;
+    return APP_ORIGIN;
+  }
+
+  addStartupLog(
+    "Static export not found; falling back to the dynamic-port dev server. " +
+    "Browser storage will not persist across restarts in this mode."
+  );
+  return startInternalHttpServer();
 }
 
 // Start embedded HTTP server with DYNAMIC PORT ASSIGNMENT (ZERO PORT CONFLICTS)
@@ -791,6 +888,30 @@ function createOverlayWindow() {
   });
 }
 
+interface UpdateStatusData {
+  status: "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error" | "dev-mode";
+  version?: string;
+  percent?: number;
+  transferred?: number;
+  total?: number;
+  bytesPerSecond?: number;
+  error?: string;
+  message?: string;
+  releaseNotes?: string;
+}
+
+let currentUpdateStatus: UpdateStatusData = {
+  status: "idle",
+};
+
+function broadcastUpdateStatus(data: UpdateStatusData) {
+  currentUpdateStatus = { ...currentUpdateStatus, ...data };
+  console.log(`[AutoUpdater State] -> status: ${data.status}, version: ${data.version || currentUpdateStatus.version || "N/A"}, percent: ${data.percent ?? "N/A"}`);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-status", currentUpdateStatus);
+  }
+}
+
 function setupAutoUpdater() {
   autoUpdater.logger = console;
   autoUpdater.allowPrerelease = true;
@@ -810,12 +931,16 @@ function setupAutoUpdater() {
 
   autoUpdater.on("checking-for-update", () => {
     console.log("[AutoUpdater] Checking for updates from GitHub Releases...");
-    mainWindow?.webContents.send("update-status", { status: "checking" });
+    broadcastUpdateStatus({ status: "checking" });
   });
 
   autoUpdater.on("update-available", (info) => {
     console.log("[AutoUpdater] Found update-available:", info.version);
-    mainWindow?.webContents.send("update-status", { status: "available", version: info.version });
+    broadcastUpdateStatus({
+      status: "available",
+      version: info.version,
+      releaseNotes: typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
+    });
     if (Notification.isSupported()) {
       new Notification({
         title: "新しいバージョンが見つかりました",
@@ -826,19 +951,29 @@ function setupAutoUpdater() {
 
   autoUpdater.on("update-not-available", (info) => {
     console.log("[AutoUpdater] Update not-available. Current version is latest:", info?.version);
-    mainWindow?.webContents.send("update-status", { status: "not-available" });
+    broadcastUpdateStatus({
+      status: "not-available",
+      version: info?.version || app.getVersion(),
+    });
   });
 
   autoUpdater.on("download-progress", (progressObj) => {
-    mainWindow?.webContents.send("update-status", {
+    broadcastUpdateStatus({
       status: "downloading",
+      version: currentUpdateStatus.version,
       percent: Math.round(progressObj.percent),
+      transferred: progressObj.transferred,
+      total: progressObj.total,
+      bytesPerSecond: progressObj.bytesPerSecond,
     });
   });
 
   autoUpdater.on("update-downloaded", (info) => {
     console.log("[AutoUpdater] Update downloaded successfully:", info.version);
-    mainWindow?.webContents.send("update-status", { status: "downloaded", version: info.version });
+    broadcastUpdateStatus({
+      status: "downloaded",
+      version: info.version,
+    });
     if (Notification.isSupported()) {
       new Notification({
         title: "アップデートの準備が完了しました！",
@@ -849,7 +984,11 @@ function setupAutoUpdater() {
 
   autoUpdater.on("error", (err) => {
     console.warn("[AutoUpdater Error]:", err?.message);
-    mainWindow?.webContents.send("update-status", { status: "error", error: err?.message });
+    broadcastUpdateStatus({
+      status: "error",
+      error: err?.message || String(err),
+      version: currentUpdateStatus.version,
+    });
   });
 }
 
@@ -873,8 +1012,10 @@ function createTray() {
       label: "アップデートを確認",
       click: () => {
         if (!isDev) {
+          broadcastUpdateStatus({ status: "checking" });
           autoUpdater.checkForUpdates().catch((err) => {
             console.warn("[Tray] checkForUpdates failed:", err);
+            broadcastUpdateStatus({ status: "error", error: err?.message || String(err) });
           });
         } else {
           dialog.showMessageBox({
@@ -941,6 +1082,10 @@ function setupIPC() {
     return startupLogs;
   });
 
+  ipcMain.handle("get-update-status", () => {
+    return currentUpdateStatus;
+  });
+
   ipcMain.on("window-minimize", () => {
     mainWindow?.minimize();
   });
@@ -975,25 +1120,50 @@ function setupIPC() {
     if (!isDev) {
       try {
         console.log("[IPC] Manual check-for-updates triggered");
+        broadcastUpdateStatus({ status: "checking" });
         const res = await autoUpdater.checkForUpdates();
         console.log("[IPC] checkForUpdates triggered successfully, updateInfo:", res?.updateInfo?.version);
+        if (res?.downloadPromise) {
+          res.downloadPromise.catch((dlErr: any) => {
+            console.warn("[AutoUpdater Download Promise Error]:", dlErr?.message);
+            broadcastUpdateStatus({ status: "error", error: dlErr?.message || String(dlErr), version: res.updateInfo?.version });
+          });
+        }
       } catch (err: any) {
         console.warn("[IPC] checkForUpdates failed:", err?.message);
-        mainWindow?.webContents.send("update-status", { status: "error", error: err?.message || String(err) });
+        broadcastUpdateStatus({ status: "error", error: err?.message || String(err) });
       }
     } else {
       console.log("[IPC] In development mode, reporting dev-mode update-status");
-      mainWindow?.webContents.send("update-status", {
+      broadcastUpdateStatus({
         status: "dev-mode",
         message: "開発モード（未パッケージ）で実行中のため、自動更新は無効です。最新版は GitHub Releases から入手できます。"
       });
     }
   });
 
-  ipcMain.on("restart-and-install-update", () => {
+  // Restarting is how a freshly installed local voice engine gets picked up:
+  // the engine probe and app_voice.py spawn both happen during startup.
+  ipcMain.on("restart-app", () => {
+    console.log("[IPC] restart-app requested.");
     isQuitting = true;
     cleanupProcesses();
-    autoUpdater.quitAndInstall(false, true);
+    app.relaunch();
+    // quit(), not exit(): a hard exit skips Chromium's shutdown, which is when
+    // pending localStorage writes are flushed to disk.
+    app.quit();
+  });
+
+  ipcMain.on("restart-and-install-update", () => {
+    console.log("[IPC] restart-and-install-update requested. Quitting and installing...");
+    isQuitting = true;
+    cleanupProcesses();
+    try {
+      autoUpdater.quitAndInstall(false, true);
+    } catch (err: any) {
+      console.error("[AutoUpdater] quitAndInstall failed:", err);
+      app.quit();
+    }
   });
 
   ipcMain.on("update-subtitle", (_event, subtitle) => {
@@ -1094,7 +1264,7 @@ app.whenReady().then(async () => {
   setupIPC();
   setupAutoUpdater();
   createTray();
-  await startInternalHttpServer();
+  await resolveFrontendUrl();
   await ensureBackendServices();
   await createWindow();
   createOverlayWindow();

@@ -142,6 +142,17 @@ class BaseStorageProvider(ABC):
         """Retrieve Google OAuth tokens."""
         pass
 
+    # ----------------------------------------------------------------------- #
+    # User Profile
+    # ----------------------------------------------------------------------- #
+    def get_user_profile(self, uid: str) -> Optional[Dict[str, Any]]:
+        """Return the user's saved profile, or None when they have not set one."""
+        return None
+
+    def upsert_user_profile(self, uid: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist the user's profile and return the stored representation."""
+        return profile_data
+
     @abstractmethod
     def delete_google_tokens(self, uid: str) -> None:
         """Delete Google OAuth tokens."""

@@ -444,6 +444,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         }).catch(() => {});
       }
 
+      if (window.electronAPI.getUpdateStatus) {
+        window.electronAPI.getUpdateStatus().then((status) => {
+          if (status && status.status !== 'idle') {
+            setUpdateStatus(status);
+            if (status.status !== 'checking') {
+              setCheckingUpdate(false);
+            }
+          }
+        }).catch(() => {});
+      }
+
       if (window.electronAPI.onUpdateStatus) {
         const unsub = window.electronAPI.onUpdateStatus((data) => {
           setUpdateStatus(data);
@@ -462,6 +473,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       setLlmMsg(null);
       setVoiceCheckResult(null);
       setLoading(true);
+
+      if (isDesktop && window.electronAPI?.getUpdateStatus) {
+        window.electronAPI.getUpdateStatus().then((status) => {
+          if (status && status.status !== 'idle') {
+            setUpdateStatus(status);
+            if (status.status !== 'checking') {
+              setCheckingUpdate(false);
+            }
+          }
+        }).catch(() => {});
+      }
 
       const savedVoice = localStorage.getItem('homespark_voice_supported');
       setVoiceSupported(savedVoice === 'true');
@@ -2448,31 +2470,71 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                   {isDesktop && (
                     <button
-                      onClick={handleCheckUpdate}
+                      onClick={updateStatus?.status === 'downloaded' ? handleRestartUpdate : handleCheckUpdate}
                       disabled={checkingUpdate || updateStatus?.status === 'downloading'}
                       style={{
                         padding: '8px 16px',
                         borderRadius: '8px',
-                        border: '1px solid var(--border3)',
-                        background: 'var(--panel)',
-                        color: 'var(--text)',
+                        border: updateStatus?.status === 'downloaded' ? 'none' : '1px solid var(--border3)',
+                        background: updateStatus?.status === 'downloaded' ? '#34A853' : 'var(--panel)',
+                        color: updateStatus?.status === 'downloaded' ? '#fff' : 'var(--text)',
                         fontSize: '12px',
                         fontWeight: 600,
-                        cursor: checkingUpdate ? 'wait' : 'pointer',
+                        cursor: (checkingUpdate || updateStatus?.status === 'downloading') ? 'wait' : 'pointer',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '6px',
-                        transition: 'background 0.15s ease',
+                        transition: 'all 0.15s ease',
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--panel)'; }}
+                      onMouseEnter={(e) => {
+                        if (updateStatus?.status === 'downloaded') {
+                          e.currentTarget.style.opacity = '0.9';
+                        } else {
+                          e.currentTarget.style.background = 'var(--hover)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (updateStatus?.status === 'downloaded') {
+                          e.currentTarget.style.opacity = '1';
+                        } else {
+                          e.currentTarget.style.background = 'var(--panel)';
+                        }
+                      }}
                     >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: checkingUpdate ? 'spin 1s linear infinite' : 'none' }}>
-                        <path d="M23 4v6h-6"/>
-                        <path d="M1 20v-6h6"/>
-                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                      </svg>
-                      {checkingUpdate ? '確認中...' : '更新を確認'}
+                      {updateStatus?.status === 'downloaded' ? (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                          再起動して更新
+                        </>
+                      ) : (checkingUpdate || updateStatus?.status === 'checking') ? (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+                            <path d="M23 4v6h-6"/>
+                            <path d="M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                          </svg>
+                          確認中...
+                        </>
+                      ) : updateStatus?.status === 'downloading' ? (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                          </svg>
+                          DL中 ({updateStatus.percent || 0}%)
+                        </>
+                      ) : (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M23 4v6h-6"/>
+                            <path d="M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                          </svg>
+                          更新を確認
+                        </>
+                      )}
                     </button>
                   )}
                 </div>
@@ -2480,11 +2542,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 {/* Updater status feedback */}
                 {updateStatus?.status === 'checking' && (
                   <div style={{ fontSize: '12px', color: '#4285F4', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
                       <circle cx="12" cy="12" r="10"/>
                       <polyline points="12 6 12 12 16 14"/>
                     </svg>
                     GitHub Releases から最新バージョンを確認しています...
+                  </div>
+                )}
+
+                {updateStatus?.status === 'available' && (
+                  <div style={{ fontSize: '12px', color: '#4285F4', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7 10 12 15 17 10"/>
+                      <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    最新バージョン（v{updateStatus.version || ''}）が見つかりました。ダウンロードを開始しています...
                   </div>
                 )}
 
@@ -2517,17 +2590,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 )}
 
                 {updateStatus?.status === 'downloading' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text2)' }}>
-                      <span>更新パッケージをダウンロード中...</span>
-                      <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{updateStatus.percent || 0}%</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'rgba(66, 133, 244, 0.06)', border: '1px solid rgba(66, 133, 244, 0.2)', padding: '12px 14px', borderRadius: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4285F4', fontWeight: 600 }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                        </svg>
+                        <span>更新パッケージをダウンロード中...</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text2)', fontFamily: "'IBM Plex Mono', monospace", fontSize: '11.5px' }}>
+                        {updateStatus.total && updateStatus.transferred ? (
+                          <span>
+                            {(updateStatus.transferred / 1048576).toFixed(1)} MB / {(updateStatus.total / 1048576).toFixed(1)} MB
+                          </span>
+                        ) : null}
+                        <span style={{ fontWeight: 600, color: '#4285F4' }}>{updateStatus.percent || 0}%</span>
+                      </div>
                     </div>
                     <div style={{ width: '100%', height: '6px', background: 'var(--border2)', borderRadius: '3px', overflow: 'hidden' }}>
                       <div
                         style={{
-                          width: `${updateStatus.percent || 0}%`,
+                          width: `${Math.max(2, updateStatus.percent || 0)}%`,
                           height: '100%',
-                          background: '#4285F4',
+                          background: 'linear-gradient(90deg, #4285F4 0%, #34A853 100%)',
                           transition: 'width 0.3s ease',
                         }}
                       />
@@ -2538,38 +2623,113 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 {updateStatus?.status === 'downloaded' && (
                   <div
                     style={{
-                      padding: '12px 14px',
+                      padding: '14px 16px',
                       borderRadius: '10px',
-                      background: 'rgba(52, 168, 83, 0.1)',
-                      border: '1px solid rgba(52, 168, 83, 0.25)',
+                      background: 'rgba(52, 168, 83, 0.12)',
+                      border: '1px solid rgba(52, 168, 83, 0.35)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
+                      gap: '12px',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34A853" strokeWidth="2.5">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                      <span style={{ fontSize: '12.5px', color: '#34A853', fontWeight: 600 }}>
-                        v{updateStatus.version || '最新版'} の更新準備が完了しました
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '50%',
+                        background: '#34A853',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#fff',
+                        flexShrink: 0,
+                      }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 600 }}>
+                          v{updateStatus.version || '最新版'} の更新準備が完了しました！
+                        </span>
+                        <span style={{ fontSize: '11.5px', color: 'var(--text2)' }}>
+                          再起動すると、自動的に最新バージョンが適用されます。
+                        </span>
+                      </div>
                     </div>
                     <button
                       onClick={handleRestartUpdate}
                       style={{
-                        padding: '6px 14px',
+                        padding: '8px 18px',
                         borderRadius: '8px',
                         border: 'none',
                         background: '#34A853',
                         color: '#fff',
-                        fontSize: '12px',
+                        fontSize: '12.5px',
                         fontWeight: 600,
                         cursor: 'pointer',
+                        boxShadow: '0 2px 8px rgba(52, 168, 83, 0.3)',
+                        transition: 'opacity 0.2s ease',
+                        whiteSpace: 'nowrap',
                       }}
+                      onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
                     >
                       今すぐ再起動して更新
                     </button>
+                  </div>
+                )}
+
+                {updateStatus?.status === 'error' && (
+                  <div
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      background: 'rgba(234, 67, 53, 0.08)',
+                      border: '1px solid rgba(234, 67, 53, 0.25)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      fontSize: '12px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', color: '#EA4335' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '2px' }}>
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span style={{ fontWeight: 600 }}>更新の確認・ダウンロードに失敗しました</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text3)', wordBreak: 'break-all' }}>
+                          {updateStatus.error || '不明な通信エラー'}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '2px' }}>
+                      <button
+                        onClick={handleCheckUpdate}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(234, 67, 53, 0.3)',
+                          background: 'rgba(234, 67, 53, 0.1)',
+                          color: '#EA4335',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        再試行
+                      </button>
+                      <button
+                        onClick={() => window.electronAPI?.openExternal('https://github.com/Ayato964/HomeSpark/releases/latest')}
+                        style={{ background: 'transparent', border: 'none', color: '#4285F4', padding: 0, cursor: 'pointer', fontSize: '11.5px', textDecoration: 'underline' }}
+                      >
+                        GitHub Releases から手動ダウンロード ↗
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

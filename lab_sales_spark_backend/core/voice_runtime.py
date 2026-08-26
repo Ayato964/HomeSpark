@@ -210,8 +210,25 @@ def capability() -> dict:
 # Install profiles
 # --------------------------------------------------------------------------- #
 def _pip(*args: str) -> list[str]:
-    return [sys.executable, "-m", "pip", "install", "--no-input", "--disable-pip-version-check", *args]
+    return [
+        sys.executable, "-m", "pip", "install",
+        "--no-input", "--disable-pip-version-check",
+        # End-user machines have no CMake and no MSVC build tools, so a source
+        # build is never going to succeed - prefer a wheel wherever one exists.
+        "--prefer-binary",
+        *args,
+    ]
 
+
+# The upstream `pyopenjtalk` sdist compiles OpenJTalk with CMake, which fails on
+# any machine without CMake + MSVC ("CMake is not found in the system path").
+# `pyopenjtalk-plus` is a maintained fork that publishes cp310 win_amd64 wheels
+# and installs under the same `pyopenjtalk` module name.
+_PYOPENJTALK = "pyopenjtalk-plus==0.4.1.post9"
+
+# onecomp-runtime declares `triton>=3.0`, which has no Windows wheel; the
+# Windows build is published separately as `triton-windows`.
+_TRITON = "triton-windows>=3.0" if os.name == "nt" else "triton>=3.0"
 
 INSTALL_PROFILES: dict[str, dict] = {
     "cpu": {
@@ -236,18 +253,36 @@ INSTALL_PROFILES: dict[str, dict] = {
         ],
     },
     "tts": {
-        "label": "ローカル音声合成 Irodori-TTS (実験的・約 1.5 GB)",
-        "size_hint": "約 1.5 GB",
+        "label": "ローカル音声合成 Irodori-TTS (GPU専用・約 3.5 GB)",
+        "size_hint": "約 3.5 GB",
         "note": (
-            "GPU必須。依存関係が多く環境によっては失敗します。失敗しても Web Speech API での"
-            "音声合成に自動フォールバックするため、アプリが使えなくなることはありません。"
+            "NVIDIA GPU 必須。GeMo の声をこの PC で合成します（Web Speech API より自然で高品質）。"
+            "音声認識エンジンも同時に導入されます。失敗した場合は Web Speech API に自動フォールバック"
+            "するため、アプリが使えなくなることはありません。"
         ),
+        # Self-contained: re-running a satisfied step is a no-op for pip, so this
+        # profile works whether or not the GPU speech-recognition profile ran
+        # first. Every step resolves to a wheel - no compiler required.
         "steps": [
-            ("音声合成の共通依存を取得中", _pip("scipy", "pyopenjtalk>=0.4.1", "huggingface_hub>=0.24", "soundfile", "safetensors")),
-            ("onecompression-runtime を取得中", _pip(_ONECOMP_ZIP)),
-            # --no-deps: upstream pins torch>=2.10 / torchcodec, which would drag
-            # in an incompatible torch on top of the CUDA 12.4 build above. The
-            # runtime only needs its inference modules.
+            (
+                "PyTorch (CUDA 12.4版) を取得中 - 数分かかります",
+                _pip("torch==2.6.0+cu124", "torchaudio==2.6.0+cu124", "--index-url", _TORCH_CUDA_INDEX),
+            ),
+            ("faster-whisper を取得中", _pip("faster-whisper==1.2.1", "numpy<3")),
+            (
+                "音声合成の共通依存を取得中",
+                _pip("scipy", "soundfile", "safetensors", "huggingface_hub>=0.24", _PYOPENJTALK),
+            ),
+            (
+                "テキスト解析モデルの依存を取得中",
+                _pip("transformers>=5.12.1,<6", "sentencepiece", "numba", "llvmlite", "peft", "pyyaml", "tqdm"),
+            ),
+            ("Triton (int4 カーネル) を取得中", _pip(_TRITON)),
+            # --no-deps throughout: upstream pins `torch>=2.10` / `torchcodec` /
+            # `triton`, which would replace the CUDA 12.4 build installed above
+            # with an incompatible one. The inference path only needs the
+            # packages resolved in the preceding steps.
+            ("onecompression-runtime を取得中", _pip("--no-deps", _ONECOMP_ZIP)),
             ("Irodori-TTS 本体を取得中", _pip("--no-deps", _IRODORI_TTS_ZIP)),
             ("Irodori-TTS-Lite を登録中", _pip("--no-deps", str(_tts_source_dir()))),
         ],
@@ -279,6 +314,40 @@ def _log(msg: str) -> None:
     logger.info(f"[VoiceInstall] {msg}")
 
 
+def _explain_pip_failure(tail: t.Iterable[str], code: int) -> str:
+    """Turn a pip failure into something the user can act on.
+
+    A bare "exit code 1" is useless; the actionable part is almost always a
+    missing build toolchain, which means we picked a package with no wheel."""
+    text = " ".join(tail).lower()
+    if "cmake is not found" in text or "cmake" in text and "not found" in text:
+        return (
+            "ソースからのビルドが必要なパッケージが選択されました (CMake 未検出)。"
+            "アプリを最新版に更新すると、ビルド不要の配布版を使用します。"
+        )
+    if "microsoft visual c++" in text or "vcvarsall" in text or "build tools" in text:
+        return (
+            "C++ ビルドツールが必要なパッケージが選択されました。"
+            "アプリを最新版に更新すると、ビルド不要の配布版を使用します。"
+        )
+    if "no matching distribution" in text or "could not find a version" in text:
+        return (
+            "この Python 環境に対応する配布物が見つかりませんでした。"
+            "ネットワーク接続とプロキシ設定をご確認ください。"
+        )
+    if "connection" in text or "timed out" in text or "temporary failure" in text:
+        return "ダウンロードに失敗しました。ネットワーク接続を確認して再試行してください。"
+    if "no space left" in text or "not enough space" in text or "errno 28" in text:
+        return "ディスクの空き容量が不足しています。"
+    if "access is denied" in text or "permission denied" in text or "errno 13" in text:
+        return (
+            "インストール先への書き込みが拒否されました。"
+            "アプリを一度終了し、管理者権限で起動して再試行してください。"
+        )
+    last = next((l for l in reversed(list(tail)) if l), "")
+    return f"(pip exit code {code}) {last[:300]}"
+
+
 def _run_steps(profile: str) -> None:
     steps = INSTALL_PROFILES[profile]["steps"]
     try:
@@ -305,14 +374,18 @@ def _run_steps(profile: str) -> None:
                 creationflags=_SUBPROCESS_FLAGS,
             )
             assert proc.stdout is not None
+            tail: deque[str] = deque(maxlen=25)
             for raw in proc.stdout:
                 line = raw.rstrip()
+                if not line:
+                    continue
+                tail.append(line.strip())
                 # pip's progress bars redraw on one line; keep the log readable.
-                if line and not line.startswith("     "):
+                if not line.startswith("     "):
                     _JOB_LOGS.append(f"    {line}")
             code = proc.wait()
             if code != 0:
-                raise RuntimeError(f"{label} が失敗しました (pip exit code {code})")
+                raise RuntimeError(f"{label} が失敗しました。{_explain_pip_failure(tail, code)}")
 
         _log("✅ 音声エンジンの導入が完了しました。アプリを再起動すると有効になります。")
         with _JOB_LOCK:

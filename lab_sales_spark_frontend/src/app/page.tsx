@@ -12,9 +12,10 @@ import { ImapSettingsModal } from "../components/ImapSettingsModal";
 import { SettingsModal } from "../components/SettingsModal";
 import { OnboardingModal } from "../components/OnboardingModal";
 import { StartupLoadingScreen } from "../components/StartupLoadingScreen";
+import { VoiceEngineSetupModal } from "../components/VoiceEngineSetupModal";
 import { isDesktopApp, getBackendBaseUrl } from "../utils/platform";
 import { UserProfile } from "../types/chat";
-import { ChatService } from "../services/ChatService";
+import { ChatService, VoiceCapability } from "../services/ChatService";
 import { getToken, loginQuick, getUser } from "../services/auth";
 import { sendSubtitleToOverlay } from "../utils/electron";
 
@@ -23,6 +24,9 @@ import { sendSubtitleToOverlay } from "../utils/electron";
 // flag keeps the screen from re-running on the in-app `location.reload()` that
 // follows onboarding while still showing it on every real launch.
 const STARTUP_DIAG_SESSION_KEY = 'homespark_startup_diagnostics_done';
+
+// Set once the user answers the local-voice-engine offer with "今後表示しない".
+const VOICE_ENGINE_PROMPT_DISMISSED_KEY = 'homespark_voice_engine_prompt_dismissed';
 
 
 // Re-expose the parser utility locally or import it. We can define it here.
@@ -139,6 +143,8 @@ export default function Home() {
   // Resolved in an effect (not a lazy initializer) so SSR and the first client
   // render agree; the startup screen is withheld until then.
   const [startupGateResolved, setStartupGateResolved] = useState<boolean>(false);
+  const [voiceCapability, setVoiceCapability] = useState<VoiceCapability | null>(null);
+  const [voiceSetupOpen, setVoiceSetupOpen] = useState<boolean>(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [isVoiceCallSupported, setIsVoiceCallSupported] = useState<boolean>(false);
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'error'>('checking');
@@ -166,6 +172,34 @@ export default function Home() {
     }
     setStartupGateResolved(true);
   }, []);
+
+  // A GPU machine running on Web Speech is leaving quality on the table, but the
+  // engine is a multi-gigabyte download - ask before pulling it.
+  useEffect(() => {
+    if (isStartupLoading || isOnboardingOpen || backendStatus !== 'connected') return;
+    if (voiceCapability) return;
+
+    let cancelled = false;
+    const chatService = new ChatService();
+    chatService.getVoiceCapability().then((cap) => {
+      if (cancelled) return;
+      setVoiceCapability(cap);
+
+      let dismissed = false;
+      try {
+        dismissed = window.localStorage.getItem(VOICE_ENGINE_PROMPT_DISMISSED_KEY) === 'true';
+      } catch {
+        // Storage unavailable: fall through and offer it this session.
+      }
+      if (!dismissed && cap.gpu.has_gpu && !cap.local_tts_ready) {
+        setVoiceSetupOpen(true);
+      }
+    }).catch(() => {
+      // Capability probing is best-effort; never block the app on it.
+    });
+
+    return () => { cancelled = true; };
+  }, [isStartupLoading, isOnboardingOpen, backendStatus, voiceCapability]);
 
   // Monitor backend health with graceful retry
   useEffect(() => {
@@ -2386,6 +2420,21 @@ export default function Home() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
+      <VoiceEngineSetupModal
+        isOpen={voiceSetupOpen}
+        capability={voiceCapability}
+        onDismiss={(never) => {
+          setVoiceSetupOpen(false);
+          if (never) {
+            try {
+              window.localStorage.setItem(VOICE_ENGINE_PROMPT_DISMISSED_KEY, 'true');
+            } catch {
+              // Non-fatal: the offer simply reappears next launch.
+            }
+          }
+        }}
+      />
+
       <OnboardingModal
         isOpen={isOnboardingOpen}
         onLoginGoogle={login}

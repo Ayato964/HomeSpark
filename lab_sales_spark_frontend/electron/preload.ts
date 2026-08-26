@@ -6,11 +6,15 @@ export interface SubtitleData {
 }
 
 export interface UpdateStatusData {
-  status: "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error" | "dev-mode";
+  status: "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error" | "dev-mode";
   version?: string;
   percent?: number;
+  transferred?: number;
+  total?: number;
+  bytesPerSecond?: number;
   error?: string;
   message?: string;
+  releaseNotes?: string;
 }
 
 export interface ElectronAPI {
@@ -29,6 +33,8 @@ export interface ElectronAPI {
   onSubtitleMessage: (callback: (subtitle: SubtitleData | null) => void) => () => void;
   checkForUpdates: () => void;
   restartAndInstallUpdate: () => void;
+  restartApp: () => void;
+  getUpdateStatus: () => Promise<UpdateStatusData>;
   onUpdateStatus: (callback: (data: UpdateStatusData) => void) => () => void;
   getBackendPort: () => Promise<number>;
   getStartupLogs: () => Promise<string[]>;
@@ -81,6 +87,8 @@ const electronAPI: ElectronAPI = {
   },
   checkForUpdates: () => ipcRenderer.send("check-for-updates"),
   restartAndInstallUpdate: () => ipcRenderer.send("restart-and-install-update"),
+  restartApp: () => ipcRenderer.send("restart-app"),
+  getUpdateStatus: () => ipcRenderer.invoke("get-update-status"),
   onUpdateStatus: (callback: (data: UpdateStatusData) => void) => {
     const subscription = (_event: unknown, data: UpdateStatusData) => callback(data);
     ipcRenderer.on("update-status", subscription);

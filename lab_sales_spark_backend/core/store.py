@@ -189,9 +189,9 @@ def get_notification_by_id(uid: str, notif_id: str) -> dict | None:
 
 
 def get_user_profile(uid: str) -> dict | None:
-    return None
+    return _get_provider().get_user_profile(uid)
 
 
 def upsert_user_profile(uid: str, profile_data: dict) -> dict:
-    return profile_data
+    return _get_provider().upsert_user_profile(uid, profile_data)
 
