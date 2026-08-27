@@ -248,6 +248,7 @@ async def summarize_memory_endpoint(
 class AddressingAiRequest(BaseModel):
     text: str
     last_ai_response: Optional[str] = None
+    recent_ambient_speeches: Optional[List[str]] = None
 
 
 class ConversationEndedRequest(BaseModel):
@@ -257,7 +258,7 @@ class ConversationEndedRequest(BaseModel):
 @app.post("/api/classifier/is-addressing-ai")
 async def is_addressing_ai_endpoint(req: AddressingAiRequest):
     """Determine whether the user speech is addressing the AI assistant."""
-    is_addressing = classify_is_addressing_ai(req.text, req.last_ai_response)
+    is_addressing = classify_is_addressing_ai(req.text, req.last_ai_response, req.recent_ambient_speeches)
     return {"is_addressing": is_addressing}
 
 

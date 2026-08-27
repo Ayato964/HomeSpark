@@ -483,11 +483,40 @@ export default function Home() {
   const isVoiceProcessingRef = useRef<boolean>(false);
   const voiceHistoryRef = useRef<any[]>([]);
   const activeVoiceAbortControllerRef = useRef<AbortController | null>(null);
+  const pendingVoiceSpeechRef = useRef<string>('');
+  const recentAmbientSpeechBufferRef = useRef<{ text: string; timestamp: number }[]>([]);
   const hasSpokenToolAcknowledgeRef = useRef<boolean>(false);
   const lastVoiceActivityTimestampRef = useRef<number>(Date.now());
   const isSummarizingMemoryRef = useRef<boolean>(false);
   const speechAccumulatorRef = useRef<string>('');
   const speechSilenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sliding buffer helper for recent ambient/unaddressed speeches (up to 5 sentences, 2-minute sliding TTL)
+  const getValidAmbientSpeeches = (): string[] => {
+    const now = Date.now();
+    const TTL_MS = 2 * 60 * 1000; // 2 minutes
+    recentAmbientSpeechBufferRef.current = recentAmbientSpeechBufferRef.current.filter(
+      item => now - item.timestamp < TTL_MS
+    );
+    return recentAmbientSpeechBufferRef.current.map(item => item.text);
+  };
+
+  const addAmbientSpeech = (text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
+    const now = Date.now();
+    const current = recentAmbientSpeechBufferRef.current;
+    current.push({ text: clean, timestamp: now });
+    // Keep max 5 recent sentences
+    if (current.length > 5) {
+      recentAmbientSpeechBufferRef.current = current.slice(-5);
+    }
+    console.log("[AmbientSpeechBuffer] Stored unaddressed speech into sliding window:", clean, `(count: ${recentAmbientSpeechBufferRef.current.length})`);
+  };
+
+  const clearAmbientSpeeches = () => {
+    recentAmbientSpeechBufferRef.current = [];
+  };
 
   // Auto-summarize subagent execution on 30-minute inactivity
   const triggerAutoSummarizeMinutes = async () => {
@@ -914,6 +943,23 @@ export default function Home() {
   const handleVoiceInput = async (userSpeech: string) => {
     if (!userSpeech.trim()) return;
 
+    // Check if there are recent ambient/unaddressed speeches to provide rich context on fresh turn
+    const ambientSpeeches = getValidAmbientSpeeches();
+    clearAmbientSpeeches();
+
+    // Determine if this is a self-correction / barge-in before AI finished previous turn
+    let effectiveUserSpeech = userSpeech;
+    if (isVoiceProcessingRef.current && pendingVoiceSpeechRef.current) {
+      effectiveUserSpeech = `${pendingVoiceSpeechRef.current}（※言い直し・変更）${userSpeech}`;
+      console.log("[handleVoiceInput] Merged interrupted speech with self-repair correction:", effectiveUserSpeech);
+    } else if (ambientSpeeches.length > 0 && voiceHistoryRef.current.length === 0) {
+      // If beginning a conversation and ambient speech buffer exists, attach it as context
+      const ambientContext = ambientSpeeches.map(s => `・「${s}」`).join('\n');
+      effectiveUserSpeech = `【直前の独り言・周辺発話参考情報】:\n${ambientContext}\n\n今回の指示・質問: 「${userSpeech}」`;
+      console.log("[handleVoiceInput] Attached recent ambient speech context to new conversation turn:", effectiveUserSpeech);
+    }
+    pendingVoiceSpeechRef.current = userSpeech;
+
     // Update voice activity timestamp for idle detection
     lastVoiceActivityTimestampRef.current = Date.now();
 
@@ -926,7 +972,7 @@ export default function Home() {
     const abortController = new AbortController();
     activeVoiceAbortControllerRef.current = abortController;
 
-    setSubtitle({ text: `あなた: ${userSpeech}`, sender: 'user' });
+    setSubtitle({ text: `あなた: ${effectiveUserSpeech}`, sender: 'user' });
 
     let sentenceBuffer = "";
     let fullAssistantResponse = "";
@@ -944,7 +990,7 @@ export default function Home() {
       }));
 
       await chatService.streamChat(
-        userSpeech,
+        effectiveUserSpeech,
         null, // No chat_id needed for ephemeral voice session
         freshToken,
         (event) => {
@@ -989,9 +1035,10 @@ export default function Home() {
             }
             sentenceBuffer = "";
             isVoiceProcessingRef.current = false;
+            pendingVoiceSpeechRef.current = ""; // Reset on successful turn completion
 
             // Update in-memory multi-turn voice context history
-            voiceHistoryRef.current.push({ role: 'user', content: userSpeech });
+            voiceHistoryRef.current.push({ role: 'user', content: effectiveUserSpeech });
             voiceHistoryRef.current.push({ role: 'assistant', content: fullAssistantResponse });
             lastVoiceActivityTimestampRef.current = Date.now();
             lastAssistantResponseRef.current = fullAssistantResponse;
@@ -1078,10 +1125,12 @@ export default function Home() {
               const localToken = typeof window !== 'undefined' ? window.localStorage.getItem('spark_session') : null;
               const freshToken = getToken() || token || localToken;
 
+              const validAmbient = getValidAmbientSpeeches();
               const isAddressing = await chatService.checkIsAddressingAI(
                 freshToken,
                 fullSpeech,
-                lastAssistantResponseRef.current
+                lastAssistantResponseRef.current,
+                validAmbient
               );
 
               if (isAddressing) {
@@ -1090,7 +1139,8 @@ export default function Home() {
                 isConvActiveRef.current = true;
                 handleVoiceInput(fullSpeech);
               } else {
-                console.log("[Classifier] Speech ignored (not addressing AI):", fullSpeech);
+                console.log("[Classifier] Speech ignored (saved to ambient buffer):", fullSpeech);
+                addAmbientSpeech(fullSpeech);
                 setTimeout(() => {
                   setSubtitle(prev => (prev && prev.text.includes(fullSpeech) ? null : prev));
                 }, 1500);
@@ -1292,10 +1342,12 @@ export default function Home() {
                             const chatService = new ChatService();
                             const localToken = typeof window !== 'undefined' ? window.localStorage.getItem('spark_session') : null;
                             const freshToken = getToken() || token || localToken;
+                            const validAmbient = getValidAmbientSpeeches();
                             const isAddressing = await chatService.checkIsAddressingAI(
                               freshToken,
                               userText,
-                              lastAssistantResponseRef.current
+                              lastAssistantResponseRef.current,
+                              validAmbient
                             );
                             if (isAddressing) {
                               console.log("[Classifier via VAD] User speech addresses AI! Setting is_conv = true");
@@ -1303,7 +1355,8 @@ export default function Home() {
                               isConvActiveRef.current = true;
                               handleVoiceInput(userText);
                             } else {
-                              console.log("[Classifier via VAD] Speech ignored (not addressing AI):", userText);
+                              console.log("[Classifier via VAD] Speech ignored (saved to ambient buffer):", userText);
+                              addAmbientSpeech(userText);
                               setTimeout(() => {
                                 setSubtitle(prev => (prev && prev.text.includes(userText) ? null : prev));
                               }, 1500);

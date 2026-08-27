@@ -28,7 +28,11 @@ FAST_NOISE_PATTERNS = [
 ]
 
 
-def classify_is_addressing_ai(text: str, last_ai_response: Optional[str] = None) -> bool:
+def classify_is_addressing_ai(
+    text: str,
+    last_ai_response: Optional[str] = None,
+    recent_ambient_speeches: Optional[list[str]] = None,
+) -> bool:
     """Strictly classify if the user's speech is addressed to the AI assistant."""
     clean_text = text.strip()
     if not clean_text:
@@ -45,13 +49,20 @@ def classify_is_addressing_ai(text: str, last_ai_response: Optional[str] = None)
             return True
 
     context_info = f" (直前のAI応答: 「{last_ai_response}」)" if last_ai_response else ""
-    prompt = f"""判定対象の発話: 「{clean_text}」{context_info}
+    ambient_info = ""
+    if recent_ambient_speeches and len(recent_ambient_speeches) > 0:
+        ambient_bullets = "\n".join([f"  ・「{s}」" for s in recent_ambient_speeches[-5:] if s.strip()])
+        if ambient_bullets:
+            ambient_info = f"\n\n【直前の周辺発話・呟き履歴 (直近最大5文)】:\n{ambient_bullets}"
+
+    prompt = f"""判定対象の発話: 「{clean_text}」{context_info}{ambient_info}
 
 この発話がAIアシスタント（秘書「GeMo（ジェモ）」）への【明確な呼びかけ・命令・質問・依頼】であるかを厳格に判定してください。
+※直前の周辺発話・呟き履歴がある場合、指示語（「それ」「その件」「さっきの」など）がAIのタスクや依頼に繋がっているかも考慮して判定してください。
 
 【AI宛て (true) の条件】
 - AIに対する呼びかけ（「GeMo」「ジェモ」「ねえ」など）が含まれている
-- または、明確にAIの機能（予定・メール・天気・名刺・検索・タスク）を依頼・指示・質問している
+- または、明確にAIの機能（予定・メール・天気・名刺・検索・タスク）を依頼・指示・質問している（直前の発話と連続している場合を含む）
 
 【非AI宛て (false) の条件】
 - 独り言（「お腹すいた」「疲れた」「あれどこだっけ」など）

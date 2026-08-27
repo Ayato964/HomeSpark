@@ -620,7 +620,8 @@ export class ChatService {
   public async checkIsAddressingAI(
     token: string | null,
     text: string,
-    lastAiResponse?: string
+    lastAiResponse?: string,
+    recentAmbientSpeeches?: string[]
   ): Promise<boolean> {
     try {
       const response = await fetch(`${this.backendUrl}/api/classifier/is-addressing-ai`, {
@@ -629,7 +630,11 @@ export class ChatService {
           ...this.authHeaders(token),
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text, last_ai_response: lastAiResponse }),
+        body: JSON.stringify({
+          text,
+          last_ai_response: lastAiResponse,
+          recent_ambient_speeches: recentAmbientSpeeches,
+        }),
       });
       if (!response.ok) return false; // safe fallback
       const data = await response.json();
