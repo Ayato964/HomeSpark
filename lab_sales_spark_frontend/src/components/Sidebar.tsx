@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isVoiceCallSupported = false,
 }) => {
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
-  const [appVersion, setAppVersion] = useState<string>('3.1.9');
+  const [appVersion, setAppVersion] = useState<string>('3.4.0');
 
   React.useEffect(() => {
     if (typeof window !== 'undefined' && window.electronAPI?.getAppVersion) {

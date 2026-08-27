@@ -102,10 +102,23 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           flexDirection: 'column',
           gap: '24px'
         }}>
-          {/* Latest Version 3.3.2 */}
+          {/* Latest Version 3.4.0 */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
               <span style={{ fontSize: '11px', fontWeight: 600, background: '#4285F4', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.{appVersion}</span>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-27</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>
+              <li><strong>音声会話の言い直し（自己修復マージ）に対応</strong>: AIが回答を生成し始める前に言い直した場合でも、直前の未完了発話と新しい発話を自動結合して文脈を保持するように改善しました。</li>
+              <li><strong>スライディング忘却バッファを導入</strong>: 独り言や未確定の発話を直近最大5文（2分間）一時保持し、「そのメール探して」「さっきの件」といった指示語で話しかけられた際も完璧に文脈を理解できるようになりました。</li>
+              <li><strong>呼びかけ判定サブエージェントを強化</strong>: 直前の呟きや周辺発話履歴を考慮して、指示語を含む呼びかけをより高精度にAI宛てと判定するようになりました。</li>
+            </ul>
+          </div>
+
+          {/* ver 3.3.2 */}
+          <div style={{ borderTop: '1px solid var(--border2)', paddingTop: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 600, background: 'var(--border3)', color: 'var(--text)', padding: '2px 8px', borderRadius: '4px', fontFamily: "'IBM Plex Mono', monospace" }}>ver.3.3.2</span>
               <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: "'IBM Plex Mono', monospace" }}>2026-08-27</span>
             </div>
             <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6 }}>
