@@ -8,3 +8,6 @@ dist/
 .vscode/
 *.wav
 !example/*.wav
+# The voice-clone reference must ship: app_voice.py falls back to a generic
+# voice when it is missing, so the packaged app spoke in the wrong voice.
+!reference/*.wav
